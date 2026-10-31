@@ -1,4 +1,4 @@
-# 플레이시트 통신 계약 v0.1
+# 플레이시트 통신 계약 v0.1.1
 
 > 차량 앱(이정한) ↔ 허브 서버(이용준) ↔ 동승자 웹(이용준)
 > 저장소로 옮길 위치: `contract/protocol.md`
@@ -83,7 +83,19 @@
 |---|---|
 | `state.sync` | 위 전체 상태 |
 | `turn.notify` | `{ seatId, deadlineMs }` — 해당 좌석 폰에 차례 알림 |
-| `reject` | `{ requestType, reason }` — `reason`: `NOT_YOUR_TURN` \| `PROFILE_BLOCKED` \| `SEAT_TAKEN` \| `DUPLICATE_VOTE` \| `DRIVING_RESTRICTED` |
+| `reject` | `{ requestType, reason, seatId? }` — `reason`: `NOT_YOUR_TURN` \| `PROFILE_BLOCKED` \| `SEAT_TAKEN` \| `DUPLICATE_VOTE` \| `DRIVING_RESTRICTED` |
+
+### 수신자 판별 — 허브는 브로드캐스트한다
+
+허브는 차량이 보낸 메시지를 **모든 폰에 그대로 뿌립니다.** 폰별 라우팅을 하지 않습니다.
+그래서 `turn.notify` 와 `reject` 는 `seatId` 를 담고, 폰이 자기 좌석 것만 골라 씁니다.
+
+```js
+if (m.type === "reject" && (!m.seatId || m.seatId === mySeat)) showToast(m.reason);
+if (m.type === "turn.notify" && m.seatId === mySeat) showMyTurn();
+```
+
+`seatId` 가 없는 `reject` 는 수신자를 특정할 수 없는 경우이므로 모든 폰이 표시해도 됩니다.
 
 ## 서버 단독 처리 (차량 경유 안 함)
 
@@ -112,5 +124,8 @@
 
 ## 버전
 
-`v0.1` — 2026-10-31 최초 확정.
+- `v0.1.1` — 2026-10-31. `reject` 에 선택 필드 `seatId` 추가. 허브가 브로드캐스트하므로
+  폰이 자기 것을 골라낼 수단이 필요했습니다. 기존 필드는 그대로이며 하위 호환됩니다.
+- `v0.1` — 2026-10-31 최초 확정.
+
 변경 시 이 문서 상단 버전을 올리고, 양쪽 PR 승인 후 병합한다.

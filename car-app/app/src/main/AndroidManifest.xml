@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Pleos Connect 차량 퍼미션.
+      실제 신호 수신은 PleosVehicleSignalSource 에서만 사용하며,
+      SDK 미연결 상태에서는 FakeVehicleSignalSource 로 동작합니다.
+    -->
+    <uses-permission android:name="CAR_SEATS" />
+    <uses-permission android:name="CAR_DOORS" />
+    <uses-permission android:name="CAR_DRIVE" />
+    <uses-permission android:name="CAR_ENERGY" />
+    <uses-permission android:name="NAVI_ROUTE" />
+    <uses-permission android:name="NAVI_ROUTE_SEARCH" />
+    <uses-permission android:name="TTS_SERVICE" />
+    <uses-permission android:name="STT_SERVICE" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
+      TODO(제출 전): required="true" 로 바꿉니다.
+      개발 중에는 일반 휴대폰 AVD 에서도 설치해 Fake 신호로 UI를 확인할 수 있도록 false 로 둡니다.
+    -->
+    <uses-feature
+        android:name="android.hardware.type.automotive"
+        android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PlaySeat">
+
+        <meta-data
+            android:name="com.android.automotive"
+            android:resource="@xml/automotive_app_desc" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.PlaySeat">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

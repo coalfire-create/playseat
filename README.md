@@ -44,13 +44,41 @@ MediaSession/MediaController로 차량의 음악 앱에 위임합니다.
 
 ## 실행 방법
 
-작성 예정 — 핵심 루프 구현 후 다음을 채웁니다.
-1. 허브 서버 실행
-2. Pleos Connect AVD 부팅 후 차량 앱 설치·실행
-3. 차량 화면의 QR을 폰으로 스캔해 동승자 웹앱 접속
-4. Virtual Console에서 도어·착석·기어를 조작해 동작 확인
+터미널 2개와 브라우저로 전체 루프를 확인할 수 있습니다. 차량 앱 없이도 됩니다.
 
+```bash
+# 1 — 허브 서버 (동승자 웹앱도 함께 서빙)
+cd hub-server && ./gradlew run
+
+# 2 — 차량 앱 목(mock). 키: d=주행전환 1~5=좌석토글 n=다음곡
+node demo/mock-car.mjs
+```
+
+브라우저에서 `http://localhost:8080` 을 열고 좌석을 선택한 뒤 곡을 검색해 추가합니다.
+`d` 를 눌러 주행 상태로 바꾸면 조작 권한이 폰으로 넘어오는 동작을 볼 수 있습니다.
+
+실제 차량 앱:
+
+```bash
+cd car-app
+echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # 최초 1회
+./gradlew :app:assembleDebug :app:testDebugUnitTest
+```
+
+Pleos Connect AVD를 띄운 뒤 Android Studio에서 Run 합니다.
 에뮬레이터에서 호스트 PC는 `10.0.2.2` 로 접근합니다.
+
+## 현재 진행 상태
+
+| 항목 | 상태 |
+|---|---|
+| 통신 계약 (`contract/protocol.md`) | v0.1.1 확정 |
+| 허브 서버 중계·곡 검색 | 동작. 전체 루프 스모크 테스트 9/9 |
+| 동승자 웹앱 | 기본형 동작 (좌석 참여·검색·큐·투표) |
+| 차량 앱 세션 엔진 | 동작. 단위 테스트 16/16 |
+| 차량 앱 화면 | 좌석 배치도·QR·주행 중 축약 화면 동작 |
+| Pleos SDK 연결 | **미완** — `FakeVehicleSignalSource` 로 대체 중 |
+| STT/TTS, NaviHelper, PlaybackGateway | 미착수 |
 
 ## 제출용 APK
 
