@@ -2,108 +2,271 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#0b0e13">
 <title>플레이시트</title>
 <style>
   :root{
-    --bg:#0e1116; --card:#171c24; --line:#273041; --fg:#e8ecf3; --dim:#8b96a8;
-    --accent:#4ea8ff; --warn:#ffb84e; --ok:#49d17f;
+    --bg:#0b0e13; --bg2:#11151d; --card:#161b24; --card2:#1c222d;
+    --line:#242c3a; --line2:#2f3a4c;
+    --fg:#eef2f8; --dim:#8a95a8; --dim2:#5e6878;
+    --accent:#4ea8ff;
+    --turn:#ffb84e; --ok:#49d17f; --danger:#ff6b81;
+    --r:14px;
   }
-  *{box-sizing:border-box}
-  body{margin:0;padding:16px;background:var(--bg);color:var(--fg);
-       font:15px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif}
-  h1{font-size:17px;margin:0 0 2px}
-  .sub{color:var(--dim);font-size:12px;margin-bottom:14px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
-  .label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
-  .seats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-  .seat{border:1px solid var(--line);border-radius:10px;padding:10px 8px;text-align:center;
-        background:#111620;cursor:pointer;font-size:12px}
-  .seat.empty{opacity:.35;cursor:not-allowed}
-  .seat.mine{border-color:var(--accent);background:#132234}
-  .seat.turn{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
-  .seat b{display:block;font-size:13px;margin-bottom:2px}
-  .seat small{color:var(--dim)}
-  .np{font-size:16px;font-weight:600}
-  .bar{height:3px;background:#243040;border-radius:2px;margin-top:8px;overflow:hidden}
-  .bar i{display:block;height:100%;background:var(--accent);width:0}
-  button{font:inherit;color:var(--fg);background:#1f2733;border:1px solid var(--line);
-         border-radius:9px;padding:9px 13px;cursor:pointer}
-  button.primary{background:var(--accent);border-color:var(--accent);color:#06121f;font-weight:600}
-  button:disabled{opacity:.4;cursor:not-allowed}
-  .row{display:flex;gap:8px;align-items:center}
-  input{flex:1;font:inherit;color:var(--fg);background:#111620;border:1px solid var(--line);
-        border-radius:9px;padding:10px}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg); min-height:100vh;
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo",
+         "Malgun Gothic",system-ui,sans-serif;
+    padding:
+      calc(env(safe-area-inset-top) + 14px) 16px
+      calc(env(safe-area-inset-bottom) + 100px);
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:460px;margin:0 auto}
+
+  /* ---------- 헤더 ---------- */
+  header{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  .logo{font-size:18px;font-weight:800;letter-spacing:-.02em}
+  .logo i{font-style:normal;color:var(--accent)}
+  .spacer{flex:1}
+  .badge{
+    font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;
+    border:1px solid var(--line2);color:var(--dim);white-space:nowrap
+  }
+  .badge.live{border-color:#2a5a3c;color:var(--ok);background:#0f2016}
+  .badge.drive{border-color:#5a4a1e;color:var(--turn);background:#241d10}
+  .badge.off{border-color:#5a2a32;color:var(--danger);background:#241216}
+
+  /* ---------- 공통 카드 ---------- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+        padding:16px;margin-bottom:12px}
+  .label{font-size:11px;font-weight:700;color:var(--dim2);letter-spacing:.08em;
+         text-transform:uppercase;margin-bottom:10px}
+
+  /* ---------- 좌석 선택 (최초 진입) ---------- */
+  #gate{display:none}
+  #gate.on{display:block}
+  .gate-h{font-size:22px;font-weight:800;line-height:1.35;margin:4px 0 6px;letter-spacing:-.02em}
+  .gate-p{color:var(--dim);font-size:14px;margin-bottom:20px}
+
+  /* 차 내부처럼 보이는 좌석 배치 */
+  .cabin{background:var(--bg2);border:1px solid var(--line);border-radius:18px;
+         padding:14px 14px 16px;position:relative;overflow:hidden}
+  .cabin::before{
+    content:"";position:absolute;inset:0 0 auto;height:26px;
+    background:linear-gradient(180deg,rgba(78,168,255,.10),transparent);
+  }
+  .cabin-row{display:flex;gap:9px;margin-bottom:9px}
+  .cabin-row:last-child{margin-bottom:0}
+  .cabin-tag{font-size:10px;color:var(--dim2);font-weight:700;margin:2px 0 7px;letter-spacing:.06em}
+
+  .seat{
+    flex:1;min-width:0;border:1px solid var(--line2);border-radius:11px;
+    background:#0f131b;padding:11px 8px;text-align:center;cursor:pointer;
+    transition:transform .12s ease, border-color .12s ease, background .12s ease;
+  }
+  .seat:active{transform:scale(.97)}
+  .seat .nm{font-size:12.5px;font-weight:700;display:block;margin-bottom:3px}
+  .seat .st{font-size:10.5px;color:var(--dim2);display:block;line-height:1.3}
+  .seat.free{border-style:dashed}
+  .seat.empty{opacity:.3;cursor:not-allowed;border-style:solid}
+  .seat.mine{border-color:var(--accent);background:#10202f;box-shadow:0 0 0 1px var(--accent) inset}
+  .seat.mine .nm{color:var(--accent)}
+  .seat.turn{border-color:var(--turn);background:#241d10}
+  .seat.turn .nm{color:var(--turn)}
+  .seat .wheel{font-size:9px;color:var(--dim2);display:block;margin-top:2px}
+
+  /* ---------- 내 차례 ---------- */
+  .turnbar{
+    border-radius:var(--r);padding:14px 16px;margin-bottom:12px;
+    border:1px solid #5a4a1e;background:linear-gradient(135deg,#2b2211,#231c10);
+    display:flex;align-items:center;gap:12px
+  }
+  .turnbar .dot{width:9px;height:9px;border-radius:50%;background:var(--turn);
+                box-shadow:0 0 0 4px rgba(255,184,78,.16);flex:none;
+                animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .turnbar b{color:var(--turn);font-size:15px;font-weight:800;display:block}
+  .turnbar small{color:#b79a62;font-size:12px}
+  .waitbar{border:1px solid var(--line);background:var(--card);color:var(--dim);
+           border-radius:var(--r);padding:12px 16px;margin-bottom:12px;font-size:13px}
+  .waitbar b{color:var(--fg);font-weight:700}
+
+  /* ---------- 상태 띠 ---------- */
+  .strip{border-radius:var(--r);padding:12px 14px;margin-bottom:12px;font-size:13px;
+         display:flex;gap:10px;align-items:flex-start}
+  .strip .ic{font-size:15px;line-height:1.2;flex:none}
+  .strip b{display:block;font-weight:700;margin-bottom:2px}
+  .strip span{color:var(--dim);font-size:12px;display:block}
+  .strip.lounge{border:1px solid #2a5a3c;background:#0f2016}
+  .strip.lounge b{color:var(--ok)}
+  .strip.landing{border:1px solid #5a4a1e;background:#241d10}
+  .strip.landing b{color:var(--turn)}
+  .strip.driving{border:1px solid #2b3a52;background:#101722}
+  .strip.driving b{color:var(--accent)}
+
+  /* ---------- 지금 재생 ---------- */
+  .np{display:flex;gap:13px;align-items:center}
+  .art{width:60px;height:60px;border-radius:9px;flex:none;object-fit:cover;
+       background:var(--card2);border:1px solid var(--line)}
+  .art.ph{display:flex;align-items:center;justify-content:center;color:#fff;
+          font-weight:800;letter-spacing:-.02em;text-shadow:0 1px 2px rgba(0,0,0,.35)}
+  .np .art.ph{font-size:24px}
+  li .art.ph{font-size:17px}
+  .np-t{min-width:0;flex:1}
+  .np-t .ti{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;
+            text-overflow:ellipsis;letter-spacing:-.01em}
+  .np-t .ar{font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .np-t .by{font-size:11px;color:var(--dim2);margin-top:3px}
+  .bar{height:3px;background:#222a37;border-radius:3px;margin-top:12px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent);border-radius:3px;
+         transition:width .9s linear}
+  .acts{display:flex;gap:8px;margin-top:13px}
+
+  /* ---------- 버튼 ---------- */
+  button{font:inherit;color:var(--fg);background:var(--card2);border:1px solid var(--line2);
+         border-radius:11px;padding:11px 14px;cursor:pointer;font-weight:600;
+         transition:transform .1s ease,opacity .1s ease}
+  button:active{transform:scale(.97)}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  button.wide{flex:1}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#06121f;font-weight:800}
+  button.ghost{background:transparent}
+  button.sm{padding:8px 13px;font-size:13px;border-radius:9px}
+
+  /* ---------- 검색 ---------- */
+  .srow{display:flex;gap:8px}
+  input{flex:1;min-width:0;font:inherit;color:var(--fg);background:#0f131b;
+         border:1px solid var(--line2);border-radius:11px;padding:12px 13px}
+  input::placeholder{color:var(--dim2)}
+  input:focus{outline:none;border-color:var(--accent)}
+
+  /* ---------- 목록 ---------- */
   ul{list-style:none;margin:0;padding:0}
-  li{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+  li{display:flex;gap:11px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
   li:last-child{border-bottom:0}
-  li small{color:var(--dim)}
-  .pill{font-size:11px;padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
-  .turnbox{background:#2a2112;border-color:#5a4a1e;color:var(--warn);text-align:center;font-weight:600}
-  .lounge{background:#11291d;border-color:#2f6b47}
-  .lounge b{color:var(--ok)}
-  .landing{background:#2a2112;border-color:#5a4a1e}
-  .landing b{color:var(--warn)}
-  .album{background:#14202b;border-color:#2b4254}
-  .album h2{font-size:15px;margin:6px 0 4px}
-  #toast{position:fixed;left:16px;right:16px;bottom:16px;background:#3a1f26;border:1px solid #6b3340;
-         color:#ffd9e0;padding:12px;border-radius:10px;display:none}
-  .state{font-size:12px;color:var(--dim)}
+  li .art{width:42px;height:42px;border-radius:7px}
+  li .meta{flex:1;min-width:0}
+  li .meta .ti{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  li .meta .ar{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  li .dur{font-size:11px;color:var(--dim2);flex:none}
+  .pill{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px;
+        border:1px solid var(--line2);color:var(--dim);flex:none;white-space:nowrap}
+  .pill.me{border-color:var(--accent);color:var(--accent)}
+  .none{color:var(--dim2);font-size:13px;padding:6px 0}
+  .srcnote{font-size:10.5px;color:var(--dim2);margin-top:8px}
+
+  /* ---------- 드라이브 앨범 ---------- */
+  .album{border:1px solid #2b3a52;background:linear-gradient(160deg,#131e2a,#101722)}
+  .album .hd{font-size:19px;font-weight:800;letter-spacing:-.02em;margin:6px 0 3px}
+  .album .sub{font-size:12px;color:var(--dim);margin-bottom:10px}
+
+  /* ---------- 토스트 ---------- */
+  #toast{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 18px);
+         max-width:460px;margin:0 auto;background:#2a1a20;border:1px solid #6b3340;
+         color:#ffd9e0;padding:13px 15px;border-radius:12px;display:none;
+         font-size:13.5px;font-weight:600;box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:50}
+  #toast.on{display:block;animation:rise .22s ease}
+  @keyframes rise{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+
+  .foot{text-align:center;color:var(--dim2);font-size:11px;margin-top:18px}
 </style>
 </head>
 <body>
-<h1>플레이시트</h1>
-<div class="sub" id="status">연결 중…</div>
+<div class="wrap">
 
-<div class="card lounge" id="lounge" style="display:none">
-  <b>충전 라운지 모드</b>
-  <div class="state" style="margin-top:4px">차례를 기다리지 않습니다. 바로 곡을 추가하세요.</div>
-</div>
-<div class="card landing" id="landing" style="display:none">
-  <b>도착 5분 전</b>
-  <div class="state" style="margin-top:4px">곡이 끊기지 않게 마무리하는 구간입니다.</div>
-</div>
-<div class="card album" id="album" style="display:none"></div>
-<div class="card" id="turnbox" style="display:none"></div>
+  <header>
+    <div class="logo">플레이<i>시트</i></div>
+    <div class="spacer"></div>
+    <div class="badge" id="bConn">연결 중</div>
+    <div class="badge" id="bDrive" style="display:none"></div>
+  </header>
 
-<div class="card">
-  <div class="label">좌석</div>
-  <div class="seats" id="seats"></div>
-  <div class="state" id="drivestate" style="margin-top:10px"></div>
-</div>
+  <!-- 최초 진입: 좌석 선택 -->
+  <section id="gate" class="on">
+    <div class="gate-h">어디에 앉으셨어요?</div>
+    <div class="gate-p">좌석을 고르면 바로 선곡에 참여합니다.<br>다음부터는 타기만 하면 자동으로 연결됩니다.</div>
+    <div class="cabin">
+      <div class="cabin-tag">1열</div>
+      <div class="cabin-row" id="gRow1"></div>
+      <div class="cabin-tag">2열</div>
+      <div class="cabin-row" id="gRow2"></div>
+    </div>
+    <div class="foot" id="gateHint">차량이 연결되면 좌석이 표시됩니다</div>
+  </section>
 
-<div class="card">
-  <div class="label">지금 재생</div>
-  <div class="np" id="np">—</div>
-  <div class="bar"><i id="pos"></i></div>
-  <div class="row" style="margin-top:12px">
-    <button id="like">♥ 좋아요</button>
-    <button id="skip">스킵 투표 <span id="votes"></span></button>
-  </div>
-</div>
+  <!-- 메인 -->
+  <main id="main" style="display:none">
 
-<div class="card">
-  <div class="label">곡 추가</div>
-  <div class="row">
-    <input id="q" placeholder="곡명 또는 아티스트" autocomplete="off">
-    <button id="search">검색</button>
-  </div>
-  <ul id="results" style="margin-top:10px"></ul>
-</div>
+    <div id="turnSlot"></div>
+    <div id="stripSlot"></div>
 
-<div class="card">
-  <div class="label">대기 중인 곡</div>
-  <div class="state" id="queuelen" style="margin-bottom:6px"></div>
-  <ul id="queue"></ul>
+    <div class="card">
+      <div class="label">지금 재생</div>
+      <div class="np">
+        <div class="art ph" id="npArt">♪</div>
+        <div class="np-t">
+          <div class="ti" id="npTitle">재생 중인 곡이 없습니다</div>
+          <div class="ar" id="npArtist"></div>
+          <div class="by" id="npBy"></div>
+        </div>
+      </div>
+      <div class="bar"><i id="npBar"></i></div>
+      <div class="acts">
+        <button class="wide sm" id="bLike">♥ 좋아요</button>
+        <button class="wide sm" id="bSkip">건너뛰기 <span id="skipN"></span></button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">곡 추가</div>
+      <div class="srow">
+        <input id="q" placeholder="곡명 또는 가수" autocomplete="off" enterkeyhint="search">
+        <button class="primary" id="bSearch">검색</button>
+      </div>
+      <ul id="results"></ul>
+      <div class="srcnote" id="srcNote"></div>
+    </div>
+
+    <div class="card">
+      <div class="label">대기 중인 곡 <span id="qCount"></span></div>
+      <div class="srcnote" id="qLen" style="margin:-4px 0 8px"></div>
+      <ul id="queue"></ul>
+    </div>
+
+    <div class="card album" id="album" style="display:none"></div>
+
+    <div class="foot" id="foot"></div>
+  </main>
 </div>
 
 <div id="toast"></div>
 
 <script>
-const SEAT_LABEL = {R1L:"1열 좌 · 운전석", R1R:"1열 우", R2L:"2열 좌", R2C:"2열 중", R2R:"2열 우"};
-const params = new URLSearchParams(location.search);
-const sessionId = params.get("s") || "a3f9";
+/* ============================================================
+   동승자 웹앱
 
+   원칙 두 가지 — 어기면 차량 판정과 화면이 어긋납니다.
+   1. 스스로 판단하지 않습니다. 화면은 state.sync 를 그대로 그립니다.
+      턴 순서·스킵 과반을 폰에서 계산하지 않습니다.
+   2. 낙관적 업데이트 금지. 요청을 보내고 다음 state.sync 를 기다립니다.
+      차량이 거절할 수 있으므로 먼저 반영하면 되돌려야 합니다.
+   ============================================================ */
+
+const SEAT = {
+  R1L:{ name:"운전석", row:1, driver:true },
+  R1R:{ name:"조수석", row:1 },
+  R2L:{ name:"2열 왼쪽", row:2 },
+  R2C:{ name:"2열 가운데", row:2 },
+  R2R:{ name:"2열 오른쪽", row:2 },
+};
+const label = (id) => (SEAT[id] && SEAT[id].name) || id;
+const $ = (id) => document.getElementById(id);
+
+const sessionId = new URLSearchParams(location.search).get("s") || "a3f9";
 let deviceId = localStorage.getItem("playseat.deviceId");
 if (!deviceId) {
   deviceId = "dev_" + Math.random().toString(36).slice(2, 8);
@@ -111,144 +274,276 @@ if (!deviceId) {
 }
 let nickname = localStorage.getItem("playseat.nickname") || "";
 
-const $ = (id) => document.getElementById(id);
-let ws, state = null, mySeat = null;
+let ws = null, state = null, mySeat = null, results = [], carOnline = false;
 
+/* ---------- 유틸 ---------- */
+const mmss = (ms) => {
+  const s = Math.max(0, Math.round((ms || 0) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+const mins = (ms) => Math.round((ms || 0) / 60000);
 function toast(msg) {
   const t = $("toast");
-  t.textContent = msg;
-  t.style.display = "block";
+  t.textContent = msg; t.className = "on";
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => (t.style.display = "none"), 2600);
+  toast._t = setTimeout(() => (t.className = ""), 2600);
+}
+const send = (o) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ ts: Date.now(), ...o }));
+
+/**
+ * 앨범아트. 외부 URL 이 있으면 그걸 쓰고, 없으면 곡명으로 결정되는 그라데이션 타일을
+ * 만듭니다. 큐레이션 목록의 곡은 커버 이미지가 없는데, 빈 자리로 두면 "이미지 깨짐"
+ * 처럼 보입니다. 같은 곡은 항상 같은 색이 나오므로 목록에서 곡을 구분하는 데도 쓰입니다.
+ */
+function artEl(url, cls, seedText) {
+  if (url) {
+    const i = document.createElement("img");
+    i.className = "art" + (cls ? " " + cls : ""); i.src = url; i.alt = "";
+    i.loading = "lazy";
+    // 외부 이미지가 실패하면 조용히 타일로 바꿉니다
+    i.onerror = () => i.replaceWith(artEl(null, cls, seedText));
+    return i;
+  }
+  const d = document.createElement("div");
+  d.className = "art ph" + (cls ? " " + cls : "");
+  const seed = (seedText || "♪").trim();
+  let h = 0;
+  for (let k = 0; k < seed.length; k++) h = (h * 31 + seed.charCodeAt(k)) % 360;
+  const h2 = (h + 42) % 360;
+  d.style.background =
+    `linear-gradient(140deg, hsl(${h} 46% 42%), hsl(${h2} 52% 26%))`;
+  d.textContent = seed ? seed[0] : "♪";
+  return d;
 }
 
-const send = (obj) => ws?.readyState === 1 && ws.send(JSON.stringify({ ts: Date.now(), ...obj }));
-
+/* ---------- 연결 ---------- */
 function connect() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const host = location.host || "localhost:8080";
   ws = new WebSocket(`${proto}//${host}/session/${sessionId}?role=phone&deviceId=${deviceId}`);
 
-  ws.onopen = () => { $("status").textContent = `세션 ${sessionId} · ${deviceId}`; };
-  ws.onclose = () => { $("status").textContent = "연결 끊김 — 재접속 중…"; setTimeout(connect, 2000); };
+  ws.onopen = () => { $("bConn").className = "badge live"; $("bConn").textContent = "연결됨"; };
+
+  ws.onclose = () => {
+    $("bConn").className = "badge off"; $("bConn").textContent = "재연결 중";
+    carOnline = false;
+    setTimeout(connect, 2000);
+  };
+
   ws.onmessage = (e) => {
     let m; try { m = JSON.parse(e.data); } catch { return; }
-    if (m.type === "state.sync") { state = m; render(); }
-    else if (m.type === "car.offline") { $("status").textContent = "차량이 연결되지 않았습니다"; }
-    else if (m.type === "car.online") { $("status").textContent = `세션 ${sessionId} · ${deviceId}`; }
-    else if (m.type === "search.result") { renderResults(m.items || []); }
+
+    if (m.type === "state.sync") { carOnline = true; state = m; render(); }
+    else if (m.type === "car.online") { carOnline = true; }
+    else if (m.type === "car.offline") {
+      carOnline = false;
+      $("bConn").className = "badge off"; $("bConn").textContent = "차량 꺼짐";
+      $("gateHint").textContent = "차량 앱이 실행되면 좌석이 표시됩니다";
+    }
+    else if (m.type === "search.result") { results = m.items || []; renderResults(m); }
     else if (m.type === "drive.album") { renderAlbum(m); }
+    else if (m.type === "turn.notify" && m.seatId === mySeat) { toast("당신의 차례입니다"); }
     else if (m.type === "reject" && (!m.seatId || m.seatId === mySeat)) {
       toast({
-        NOT_YOUR_TURN: "지금은 당신의 차례가 아닙니다",
-        PROFILE_BLOCKED: "이 좌석에서는 추가할 수 없습니다",
-        SEAT_TAKEN: "이미 사용 중인 좌석입니다",
-        DUPLICATE_VOTE: "이미 투표했습니다",
-        DRIVING_RESTRICTED: "주행 중에는 제한됩니다",
+        NOT_YOUR_TURN:"지금은 당신의 차례가 아닙니다",
+        PROFILE_BLOCKED:"이 좌석에서는 추가할 수 없습니다",
+        SEAT_TAKEN:"이미 사용 중인 좌석입니다",
+        DUPLICATE_VOTE:"이미 투표했습니다",
+        DRIVING_RESTRICTED:"주행 중에는 제한됩니다",
       }[m.reason] || m.reason);
     }
-    else if (m.type === "turn.notify" && m.seatId === mySeat) { toast("당신의 차례입니다"); }
   };
 }
 
+/* ---------- 좌석 참여 ---------- */
 function claim(seatId) {
   if (!nickname) {
-    nickname = (prompt("표시할 이름") || "").trim();
+    nickname = (prompt("표시할 이름을 알려주세요") || "").trim();
     if (!nickname) return;
     localStorage.setItem("playseat.nickname", nickname);
   }
-  send({ type: "seat.claim", deviceId, seatId, nickname });
+  send({ type:"seat.claim", deviceId, seatId, nickname });
 }
 
+function seatNode(s, forGate) {
+  const el = document.createElement("div");
+  const isMine = s.deviceId === deviceId;
+  const isTurn = state && state.turnSeatId === s.seatId && state.mode !== "CHARGING_LOUNGE";
+  const free = s.occupied && !s.deviceId;
+
+  el.className = "seat"
+    + (!s.occupied ? " empty" : "")
+    + (free ? " free" : "")
+    + (isMine ? " mine" : "")
+    + (isTurn ? " turn" : "");
+
+  const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = label(s.seatId);
+  const st = document.createElement("span"); st.className = "st";
+  st.textContent = !s.occupied ? "빈 좌석"
+    : isMine ? "나"
+    : s.nickname ? s.nickname
+    : forGate ? "선택 가능" : "참여 대기";
+  el.append(nm, st);
+
+  if (SEAT[s.seatId] && SEAT[s.seatId].driver) {
+    const w = document.createElement("span"); w.className = "wheel"; w.textContent = "운전";
+    el.append(w);
+  }
+  if (free) el.onclick = () => claim(s.seatId);
+  return el;
+}
+
+/* ---------- 렌더 ---------- */
 function render() {
   if (!state) return;
-  const me = (state.seats || []).find((s) => s.deviceId === deviceId);
+  const seats = state.seats || [];
+  const me = seats.find((s) => s.deviceId === deviceId);
   mySeat = me ? me.seatId : null;
 
-  $("seats").innerHTML = "";
-  for (const s of state.seats || []) {
-    const el = document.createElement("div");
-    el.className = "seat" + (!s.occupied ? " empty" : "")
-      + (s.deviceId === deviceId ? " mine" : "")
-      + (state.turnSeatId === s.seatId ? " turn" : "");
-    el.innerHTML = `<b>${SEAT_LABEL[s.seatId] || s.seatId}</b>`
-      + `<small>${!s.occupied ? "빈 좌석" : s.nickname ? s.nickname : "참여 대기"}</small>`;
-    if (s.occupied && !s.deviceId) el.onclick = () => claim(s.seatId);
-    $("seats").appendChild(el);
+  // 좌석 미선택이면 게이트
+  if (!mySeat) {
+    $("gate").className = "on"; $("main").style.display = "none";
+    $("gRow1").replaceChildren(...seats.filter((s) => (SEAT[s.seatId]||{}).row === 1).map((s) => seatNode(s, true)));
+    $("gRow2").replaceChildren(...seats.filter((s) => (SEAT[s.seatId]||{}).row === 2).map((s) => seatNode(s, true)));
+    const free = seats.filter((s) => s.occupied && !s.deviceId).length;
+    $("gateHint").textContent = free ? "앉으신 좌석을 눌러주세요" : "착석이 감지된 좌석이 없습니다";
+    return;
   }
+  $("gate").className = ""; $("main").style.display = "block";
 
   const driving = state.driveState === "DRIVING";
-  $("drivestate").textContent = driving
-    ? "주행 중 — 운전자 화면은 잠겨 있고, 조작 권한은 지금 이 폰에 있습니다"
-    : "정차 중 — 운전자 화면에서도 전체 조작이 가능합니다";
+  const lounge  = state.mode === "CHARGING_LOUNGE";
+  const canAdd  = lounge || state.turnSeatId === mySeat;
 
-  // v0.2 필드는 차량 앱 버전에 따라 없을 수 있으므로 undefined 를 정상으로 다룹니다.
-  const lounge = state.mode === "CHARGING_LOUNGE";
-  $("lounge").style.display = lounge ? "block" : "none";
-  $("landing").style.display = state.landing ? "block" : "none";
+  // 헤더 배지
+  const bd = $("bDrive"); bd.style.display = "inline-block";
+  bd.className = "badge " + (driving ? "drive" : "");
+  bd.textContent = driving
+    ? (state.etaSeconds != null ? `주행 중 · ${Math.floor(state.etaSeconds/60)}분 남음` : "주행 중")
+    : "정차 중";
 
-  if (state.queueTargetMs) {
-    const total = state.queueTotalMs || 0;
-    $("queuelen").textContent =
-      `큐 ${Math.round(total / 60000)}분 / 도착까지 ${Math.round(state.queueTargetMs / 60000)}분`;
-  } else {
-    $("queuelen").textContent = "";
-  }
+  // 내 차례
+  const ts = $("turnSlot");
+  if (lounge) ts.replaceChildren();
+  else if (canAdd) {
+    ts.innerHTML = `<div class="turnbar"><div class="dot"></div><div>
+      <b>당신의 차례입니다</b><small>한 곡을 골라 큐에 넣어주세요</small></div></div>`;
+  } else if (state.turnSeatId) {
+    ts.innerHTML = `<div class="waitbar">다음 선곡 차례 · <b>${label(state.turnSeatId)}</b></div>`;
+  } else ts.replaceChildren();
 
-  // 라운지 모드에서는 차례와 무관하게 추가할 수 있습니다.
-  const isMyTurn = mySeat && (lounge || state.turnSeatId === mySeat);
-  const tb = $("turnbox");
-  if (lounge) { tb.style.display = "none"; }
-  else if (isMyTurn) { tb.style.display = "block"; tb.className = "card turnbox"; tb.textContent = "당신의 차례입니다 — 곡을 추가하세요"; }
-  else if (state.turnSeatId) { tb.style.display = "block"; tb.className = "card"; tb.innerHTML = `<span class="state">다음 선곡 차례 · ${SEAT_LABEL[state.turnSeatId] || state.turnSeatId}</span>`; }
-  else { tb.style.display = "none"; }
+  // 상태 띠
+  const st = $("stripSlot"); st.replaceChildren();
+  if (lounge) st.innerHTML += `<div class="strip lounge"><div class="ic">⚡</div><div>
+    <b>충전 라운지</b><span>차례를 기다리지 않습니다. 바로 곡을 추가하세요.</span></div></div>`;
+  if (state.landing) st.innerHTML += `<div class="strip landing"><div class="ic">◉</div><div>
+    <b>도착 5분 전</b><span>곡이 끊기지 않게 마무리하는 구간입니다.</span></div></div>`;
+  if (driving && !state.landing) st.innerHTML += `<div class="strip driving"><div class="ic">▣</div><div>
+    <b>지금 선곡 권한은 이 폰에 있습니다</b><span>운전자 화면은 잠겨 있고, 운전자는 음성으로만 참여합니다.</span></div></div>`;
 
+  // 지금 재생
   const np = state.nowPlaying;
-  $("np").textContent = np ? `${np.title} — ${np.artist}` : "—";
-  $("pos").style.width = np ? Math.min(100, (np.positionMs / np.durationMs) * 100) + "%" : "0";
-  $("votes").textContent = `(${(state.skipVotes || []).length}/${state.skipThreshold || "-"})`;
-  $("like").disabled = $("skip").disabled = !mySeat || !np;
+  const oldArt = $("npArt");
+  const newArt = artEl(np && np.artworkUrl, null, np && np.title); newArt.id = "npArt";
+  oldArt.replaceWith(newArt);
+  $("npTitle").textContent = np ? np.title : "재생 중인 곡이 없습니다";
+  $("npArtist").textContent = np ? np.artist : "";
+  $("npBy").textContent = np ? `${label(np.requestedBySeat)} 선곡 · ${mmss(np.positionMs)} / ${mmss(np.durationMs)}` : "";
+  $("npBar").style.width = np ? Math.min(100, ((np.positionMs||0) / Math.max(1, np.durationMs)) * 100) + "%" : "0";
+  $("skipN").textContent = np ? `${(state.skipVotes||[]).length}/${state.skipThreshold||"-"}` : "";
+  $("bLike").disabled = $("bSkip").disabled = !np;
+  $("bSkip").className = "wide sm" + ((state.skipVotes||[]).includes(mySeat) ? " ghost" : "");
 
-  $("queue").innerHTML = (state.queue || []).length
-    ? (state.queue).map((q) =>
-        `<li><span>${q.title}<br><small>${q.artist}</small></span>`
-        + `<span class="pill">${SEAT_LABEL[q.requestedBySeat] || q.requestedBySeat}</span></li>`).join("")
-    : `<li><small>비어 있습니다</small></li>`;
+  // 큐
+  const q = state.queue || [];
+  $("qCount").textContent = q.length ? q.length : "";
+  $("qLen").textContent = state.queueTargetMs
+    ? `큐 ${mins(state.queueTotalMs)}분 / 도착까지 ${mins(state.queueTargetMs)}분`
+    : "";
+  const ql = $("queue"); ql.replaceChildren();
+  if (!q.length) ql.innerHTML = `<li><span class="none">아직 없습니다</span></li>`;
+  else q.forEach((t) => {
+    const li = document.createElement("li");
+    li.append(artEl(t.artworkUrl, null, t.title));
+    const m = document.createElement("div"); m.className = "meta";
+    m.innerHTML = `<div class="ti"></div><div class="ar"></div>`;
+    m.querySelector(".ti").textContent = t.title;
+    m.querySelector(".ar").textContent = t.artist;
+    li.append(m);
+    const p = document.createElement("span");
+    p.className = "pill" + (t.requestedBySeat === mySeat ? " me" : "");
+    p.textContent = t.requestedBySeat === mySeat ? "내 선곡" : label(t.requestedBySeat);
+    li.append(p);
+    ql.append(li);
+  });
+
+  // 검색 결과의 추가 버튼 상태를 차례에 맞춰 갱신
+  for (const b of $("results").querySelectorAll("button")) b.disabled = !canAdd;
+  $("foot").textContent = `${label(mySeat)} · ${nickname || deviceId}`;
 }
 
-function renderResults(items) {
-  $("results").innerHTML = items.length
-    ? items.map((t, i) =>
-        `<li><span>${t.title}<br><small>${t.artist}</small></span>`
-        + `<button data-i="${i}">추가</button></li>`).join("")
-    : `<li><small>결과가 없습니다</small></li>`;
-  renderResults._items = items;
-  for (const b of $("results").querySelectorAll("button")) {
-    b.onclick = () => {
-      if (!mySeat) return toast("먼저 좌석을 선택하세요");
-      const t = renderResults._items[+b.dataset.i];
-      send({ type: "queue.add", seatId: mySeat, title: t.title, artist: t.artist,
-             durationMs: t.durationMs, externalId: t.externalId });
-    };
+function renderResults(msg) {
+  const ul = $("results"); ul.replaceChildren();
+  const canAdd = state && (state.mode === "CHARGING_LOUNGE" || state.turnSeatId === mySeat);
+
+  if (!results.length) {
+    ul.innerHTML = `<li><span class="none">결과가 없습니다. 다른 검색어로 해보세요.</span></li>`;
+    $("srcNote").textContent = "";
+    return;
   }
+  results.forEach((t, i) => {
+    const li = document.createElement("li");
+    li.append(artEl(t.artworkUrl, null, t.title));
+    const m = document.createElement("div"); m.className = "meta";
+    m.innerHTML = `<div class="ti"></div><div class="ar"></div>`;
+    m.querySelector(".ti").textContent = t.title;
+    m.querySelector(".ar").textContent = `${t.artist} · ${mmss(t.durationMs)}`;
+    li.append(m);
+    const b = document.createElement("button");
+    b.className = "sm primary"; b.textContent = "추가"; b.disabled = !canAdd;
+    b.onclick = () => {
+      // 낙관적 업데이트를 하지 않습니다. 다음 state.sync 로만 반영됩니다.
+      send({ type:"queue.add", seatId:mySeat, title:t.title, artist:t.artist,
+             durationMs:t.durationMs, externalId:t.externalId });
+    };
+    li.append(b);
+    ul.append(li);
+  });
+  $("srcNote").textContent = msg && msg.source === "catalog" ? "" :
+    msg && msg.source ? `검색 소스: ${msg.source}` : "";
 }
 
 function renderAlbum(a) {
-  const mins = Math.round((a.durationMs || 0) / 60000);
-  const who = (a.seats || []).map((s) => s.nickname).filter(Boolean).join(", ");
-  const list = (a.tracks || []).map((t) => `<li><span>${t.title}<br><small>${t.artist}</small></span>`
-    + `<span class="pill">${SEAT_LABEL[t.requestedBySeat] || t.requestedBySeat}</span></li>`).join("");
-  $("album").innerHTML = `<div class="label">드라이브 앨범</div>`
-    + `<h2>${mins}분 · 함께 들은 ${(a.tracks || []).length}곡</h2>`
-    + (who ? `<div class="state">${who}</div>` : "")
-    + `<ul style="margin-top:8px">${list}</ul>`;
-  $("album").style.display = "block";
+  const el = $("album");
+  const who = (a.seats || []).map((s) => s.nickname).filter(Boolean);
+  el.innerHTML = `<div class="label">드라이브 앨범</div>
+    <div class="hd">${mins(a.durationMs)}분 · 함께 들은 ${(a.tracks||[]).length}곡</div>
+    <div class="sub">${who.length ? who.join(" · ") : "이번 이동의 기록"}</div><ul></ul>`;
+  const ul = el.querySelector("ul");
+  (a.tracks || []).forEach((t) => {
+    const li = document.createElement("li");
+    const m = document.createElement("div"); m.className = "meta";
+    m.innerHTML = `<div class="ti"></div><div class="ar"></div>`;
+    m.querySelector(".ti").textContent = t.title;
+    m.querySelector(".ar").textContent = t.artist;
+    li.append(m);
+    const p = document.createElement("span"); p.className = "pill";
+    p.textContent = label(t.requestedBySeat); li.append(p);
+    ul.append(li);
+  });
+  el.style.display = "block";
+  el.scrollIntoView({ behavior:"smooth", block:"center" });
 }
 
-$("search").onclick = () => send({ type: "search.query", q: $("q").value, limit: 20 });
-$("q").onkeydown = (e) => { if (e.key === "Enter") $("search").click(); };
-$("like").onclick = () => send({ type: "reaction.like", seatId: mySeat });
-$("skip").onclick = () => send({ type: "vote.skip", seatId: mySeat });
+/* ---------- 이벤트 ---------- */
+$("bSearch").onclick = () => {
+  const q = $("q").value.trim();
+  if (!q) return;
+  send({ type:"search.query", q, limit:12 });
+};
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { $("q").blur(); $("bSearch").click(); } });
+$("bLike").onclick = () => { send({ type:"reaction.like", seatId:mySeat }); toast("♥ 전달했습니다"); };
+$("bSkip").onclick = () => send({ type:"vote.skip", seatId:mySeat });
 
 connect();
 </script>
