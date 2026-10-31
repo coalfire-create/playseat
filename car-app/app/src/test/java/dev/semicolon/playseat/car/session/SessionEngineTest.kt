@@ -22,10 +22,12 @@ class SessionEngineTest {
         occupied: Set<String>,
         drive: DriveState = DriveState.PARKED,
         eta: Int? = null,
+        charging: Boolean = false,
     ) = VehicleSnapshot(
         seats = SeatId.ALL.map { SeatSignal(it, it in occupied) },
         driveState = drive,
         etaSeconds = eta,
+        charging = charging,
     )
 
     private fun claim(e: SessionEngine, seatId: String, device: String) =
@@ -207,5 +209,131 @@ class SessionEngineTest {
         assertEquals(2, e.state.value.skipThreshold)
         e.onVehicle(snapshot(setOf(SeatId.R1L, SeatId.R1R, SeatId.R2L, SeatId.R2C, SeatId.R2R)))
         assertEquals(3, e.state.value.skipThreshold)
+    }
+
+    /* ---------------- v0.2: 라운지 모드 · 랜딩 · 드라이브 앨범 ---------------- */
+
+    @Test
+    fun `충전 중 정차면 라운지 모드가 켜진다`() {
+        val e = engine()
+        e.onVehicle(snapshot(setOf(SeatId.R1R), charging = true))
+        assertEquals(SessionMode.CHARGING_LOUNGE, e.state.value.mode)
+    }
+
+    @Test
+    fun `충전 중이라도 주행이면 라운지 모드가 아니다`() {
+        val e = engine()
+        e.onVehicle(snapshot(setOf(SeatId.R1R), drive = DriveState.DRIVING, charging = true))
+        assertEquals(SessionMode.NORMAL, e.state.value.mode)
+    }
+
+    @Test
+    fun `라운지 모드에서는 차례가 아닌 좌석도 곡을 넣을 수 있다`() {
+        val e = engine()
+        e.onVehicle(snapshot(setOf(SeatId.R1R, SeatId.R2L), charging = true))
+        val turn = e.state.value.turnSeatId
+        val other = listOf(SeatId.R1R, SeatId.R2L).first { it != turn }
+        assertNull(add(e, other, "라운지 곡"))
+        val all = listOfNotNull(e.state.value.nowPlaying) + e.state.value.queue
+        assertTrue(all.any { it.title == "라운지 곡" })
+    }
+
+    @Test
+    fun `라운지 모드에서는 곡을 넣어도 차례가 넘어가지 않는다`() {
+        val e = engine()
+        e.onVehicle(snapshot(setOf(SeatId.R1R, SeatId.R2L), charging = true))
+        val before = e.state.value.turnSeatId
+        add(e, SeatId.R2L, "곡")
+        assertEquals(before, e.state.value.turnSeatId)
+    }
+
+    @Test
+    fun `라운지 모드에서도 빈 좌석은 곡을 넣을 수 없다`() {
+        val e = engine()
+        e.onVehicle(snapshot(setOf(SeatId.R1R), charging = true))
+        val reject = add(e, SeatId.R2R, "곡")
+        assertEquals(RejectReason.SEAT_TAKEN, reject?.reason)
+    }
+
+    @Test
+    fun `주행 중 도착 5분 이내면 랜딩 구간이다`() {
+        val e = engine()
+        e.onVehicle(snapshot(setOf(SeatId.R1L), drive = DriveState.DRIVING, eta = 600))
+        assertEquals(false, e.state.value.landing)
+        e.onVehicle(snapshot(setOf(SeatId.R1L), drive = DriveState.DRIVING, eta = 240))
+        assertEquals(true, e.state.value.landing)
+    }
+
+    @Test
+    fun `정차 중에는 랜딩 구간이 되지 않는다`() {
+        val e = engine()
+        e.onVehicle(snapshot(setOf(SeatId.R1L), drive = DriveState.PARKED, eta = 60))
+        assertEquals(false, e.state.value.landing)
+    }
+
+    @Test
+    fun `큐 총 길이가 집계된다`() {
+        val e = engine()
+        e.onVehicle(snapshot(setOf(SeatId.R1R)))
+        val seat = e.state.value.turnSeatId!!
+        add(e, seat, "곡1", durationMs = 200_000) // 바로 재생되므로 큐에서 빠짐
+        add(e, seat, "곡2", durationMs = 180_000)
+        add(e, seat, "곡3", durationMs = 120_000)
+        assertEquals(300_000L, e.state.value.queueTotalMs)
+    }
+
+    @Test
+    fun `주행이 끝나면 함께 들은 곡으로 드라이브 앨범이 나온다`() {
+        val e = engine()
+        var album: DriveAlbumMsg? = null
+        e.onDriveAlbum = { album = it }
+
+        e.onVehicle(snapshot(setOf(SeatId.R1R, SeatId.R2L), drive = DriveState.DRIVING))
+        val a = e.state.value.turnSeatId!!
+        add(e, a, "곡1")
+        val b = e.state.value.turnSeatId!!
+        add(e, b, "곡2")
+        e.trackFinished() // 곡1 끝 → 곡2 재생
+        e.trackFinished() // 곡2 끝
+
+        e.onVehicle(snapshot(setOf(SeatId.R1R, SeatId.R2L), drive = DriveState.PARKED))
+
+        assertNotNull(album)
+        assertEquals(listOf("곡1", "곡2"), album!!.tracks.map { it.title })
+    }
+
+    @Test
+    fun `들은 곡이 없는 주행은 앨범을 남기지 않는다`() {
+        val e = engine()
+        var album: DriveAlbumMsg? = null
+        e.onDriveAlbum = { album = it }
+
+        e.onVehicle(snapshot(setOf(SeatId.R1L), drive = DriveState.DRIVING))
+        e.onVehicle(snapshot(setOf(SeatId.R1L), drive = DriveState.PARKED))
+
+        assertNull(album)
+    }
+
+    @Test
+    fun `앨범은 주행마다 초기화된다`() {
+        val e = engine()
+        val albums = mutableListOf<DriveAlbumMsg>()
+        e.onDriveAlbum = { albums += it }
+
+        // 1회차
+        e.onVehicle(snapshot(setOf(SeatId.R1R), drive = DriveState.DRIVING))
+        add(e, SeatId.R1R, "1회차곡")
+        e.trackFinished()
+        e.onVehicle(snapshot(setOf(SeatId.R1R), drive = DriveState.PARKED))
+
+        // 2회차
+        e.onVehicle(snapshot(setOf(SeatId.R1R), drive = DriveState.DRIVING))
+        add(e, SeatId.R1R, "2회차곡")
+        e.trackFinished()
+        e.onVehicle(snapshot(setOf(SeatId.R1R), drive = DriveState.PARKED))
+
+        assertEquals(2, albums.size)
+        assertEquals(listOf("1회차곡"), albums[0].tracks.map { it.title })
+        assertEquals(listOf("2회차곡"), albums[1].tracks.map { it.title })
     }
 }

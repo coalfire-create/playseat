@@ -40,6 +40,12 @@
   li small{color:var(--dim)}
   .pill{font-size:11px;padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
   .turnbox{background:#2a2112;border-color:#5a4a1e;color:var(--warn);text-align:center;font-weight:600}
+  .lounge{background:#11291d;border-color:#2f6b47}
+  .lounge b{color:var(--ok)}
+  .landing{background:#2a2112;border-color:#5a4a1e}
+  .landing b{color:var(--warn)}
+  .album{background:#14202b;border-color:#2b4254}
+  .album h2{font-size:15px;margin:6px 0 4px}
   #toast{position:fixed;left:16px;right:16px;bottom:16px;background:#3a1f26;border:1px solid #6b3340;
          color:#ffd9e0;padding:12px;border-radius:10px;display:none}
   .state{font-size:12px;color:var(--dim)}
@@ -49,6 +55,15 @@
 <h1>플레이시트</h1>
 <div class="sub" id="status">연결 중…</div>
 
+<div class="card lounge" id="lounge" style="display:none">
+  <b>충전 라운지 모드</b>
+  <div class="state" style="margin-top:4px">차례를 기다리지 않습니다. 바로 곡을 추가하세요.</div>
+</div>
+<div class="card landing" id="landing" style="display:none">
+  <b>도착 5분 전</b>
+  <div class="state" style="margin-top:4px">곡이 끊기지 않게 마무리하는 구간입니다.</div>
+</div>
+<div class="card album" id="album" style="display:none"></div>
 <div class="card" id="turnbox" style="display:none"></div>
 
 <div class="card">
@@ -78,6 +93,7 @@
 
 <div class="card">
   <div class="label">대기 중인 곡</div>
+  <div class="state" id="queuelen" style="margin-bottom:6px"></div>
   <ul id="queue"></ul>
 </div>
 
@@ -121,6 +137,7 @@ function connect() {
     else if (m.type === "car.offline") { $("status").textContent = "차량이 연결되지 않았습니다"; }
     else if (m.type === "car.online") { $("status").textContent = `세션 ${sessionId} · ${deviceId}`; }
     else if (m.type === "search.result") { renderResults(m.items || []); }
+    else if (m.type === "drive.album") { renderAlbum(m); }
     else if (m.type === "reject" && (!m.seatId || m.seatId === mySeat)) {
       toast({
         NOT_YOUR_TURN: "지금은 당신의 차례가 아닙니다",
@@ -165,9 +182,24 @@ function render() {
     ? "주행 중 — 운전자 화면은 잠겨 있고, 조작 권한은 지금 이 폰에 있습니다"
     : "정차 중 — 운전자 화면에서도 전체 조작이 가능합니다";
 
-  const isMyTurn = mySeat && state.turnSeatId === mySeat;
+  // v0.2 필드는 차량 앱 버전에 따라 없을 수 있으므로 undefined 를 정상으로 다룹니다.
+  const lounge = state.mode === "CHARGING_LOUNGE";
+  $("lounge").style.display = lounge ? "block" : "none";
+  $("landing").style.display = state.landing ? "block" : "none";
+
+  if (state.queueTargetMs) {
+    const total = state.queueTotalMs || 0;
+    $("queuelen").textContent =
+      `큐 ${Math.round(total / 60000)}분 / 도착까지 ${Math.round(state.queueTargetMs / 60000)}분`;
+  } else {
+    $("queuelen").textContent = "";
+  }
+
+  // 라운지 모드에서는 차례와 무관하게 추가할 수 있습니다.
+  const isMyTurn = mySeat && (lounge || state.turnSeatId === mySeat);
   const tb = $("turnbox");
-  if (isMyTurn) { tb.style.display = "block"; tb.className = "card turnbox"; tb.textContent = "당신의 차례입니다 — 곡을 추가하세요"; }
+  if (lounge) { tb.style.display = "none"; }
+  else if (isMyTurn) { tb.style.display = "block"; tb.className = "card turnbox"; tb.textContent = "당신의 차례입니다 — 곡을 추가하세요"; }
   else if (state.turnSeatId) { tb.style.display = "block"; tb.className = "card"; tb.innerHTML = `<span class="state">다음 선곡 차례 · ${SEAT_LABEL[state.turnSeatId] || state.turnSeatId}</span>`; }
   else { tb.style.display = "none"; }
 
@@ -199,6 +231,18 @@ function renderResults(items) {
              durationMs: t.durationMs, externalId: t.externalId });
     };
   }
+}
+
+function renderAlbum(a) {
+  const mins = Math.round((a.durationMs || 0) / 60000);
+  const who = (a.seats || []).map((s) => s.nickname).filter(Boolean).join(", ");
+  const list = (a.tracks || []).map((t) => `<li><span>${t.title}<br><small>${t.artist}</small></span>`
+    + `<span class="pill">${SEAT_LABEL[t.requestedBySeat] || t.requestedBySeat}</span></li>`).join("");
+  $("album").innerHTML = `<div class="label">드라이브 앨범</div>`
+    + `<h2>${mins}분 · 함께 들은 ${(a.tracks || []).length}곡</h2>`
+    + (who ? `<div class="state">${who}</div>` : "")
+    + `<ul style="margin-top:8px">${list}</ul>`;
+  $("album").style.display = "block";
 }
 
 $("search").onclick = () => send({ type: "search.query", q: $("q").value, limit: 20 });

@@ -46,5 +46,17 @@ class FakeVehicleSignalSource : VehicleSignalSource {
 
     fun setEta(seconds: Int?) = _snapshot.update { it.copy(etaSeconds = seconds) }
 
+    /**
+     * 1초마다 호출합니다. 주행 중일 때만 잔여 ETA 를 줄입니다.
+     *
+     * 실제 구현에서는 NaviHelper 가 내려주는 값이지만, 랜딩 구간(도착 5분 전)과
+     * 드라이브 앨범을 검증하려면 ETA 가 실제로 흘러야 합니다.
+     */
+    fun tick() = _snapshot.update { s ->
+        val eta = s.etaSeconds
+        if (s.driveState != DriveState.DRIVING || eta == null) s
+        else s.copy(etaSeconds = (eta - 1).coerceAtLeast(0))
+    }
+
     fun toggleCharging() = _snapshot.update { it.copy(charging = !it.charging) }
 }

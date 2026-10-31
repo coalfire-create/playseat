@@ -41,9 +41,38 @@ data class SessionState(
     val queueTargetMs: Long? = null,
     val skipVotes: List<String> = emptyList(),
     val skipThreshold: Int = 2,
+    /** NORMAL | CHARGING_LOUNGE. 라운지 모드에서는 좌석 턴 규칙이 해제됩니다. */
+    val mode: String = SessionMode.NORMAL,
+    /** 도착 5분 이내. 안내용이며 큐 추가를 막지는 않습니다. */
+    val landing: Boolean = false,
+    /** 현재 큐의 총 재생 길이. queueTargetMs 와 비교해 "도착까지 몇 곡 더"를 보여줍니다. */
+    val queueTotalMs: Long = 0,
 ) {
     companion object { const val TURN_DEADLINE_MS = 30_000 }
 }
+
+object SessionMode {
+    const val NORMAL = "NORMAL"
+    const val CHARGING_LOUNGE = "CHARGING_LOUNGE"
+}
+
+/** 주행이 끝나면 한 번 전송합니다. 이동 1회를 하나의 기록 단위로 만드는 리텐션 장치입니다. */
+@Serializable
+data class DriveAlbumMsg(
+    val type: String = "drive.album",
+    val ts: Long,
+    val startedAt: Long,
+    val endedAt: Long,
+    val durationMs: Long,
+    val tracks: List<AlbumTrack> = emptyList(),
+    val seats: List<AlbumSeat> = emptyList(),
+)
+
+@Serializable
+data class AlbumTrack(val title: String, val artist: String, val requestedBySeat: String)
+
+@Serializable
+data class AlbumSeat(val seatId: String, val nickname: String? = null)
 
 /**
  * 폰이 보내는 요청.

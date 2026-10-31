@@ -27,6 +27,13 @@ class SessionEngine(
 
     private var itemSeq = 1
 
+    /** 주행이 끝났을 때 드라이브 앨범을 전달합니다. CarViewModel 이 허브로 보냅니다. */
+    var onDriveAlbum: ((DriveAlbumMsg) -> Unit)? = null
+
+    // 현재 주행 구간의 기록. 정차 → 주행에서 시작하고, 주행 → 정차에서 앨범으로 내보냅니다.
+    private var tripStartedAt: Long? = null
+    private val tripTracks = mutableListOf<AlbumTrack>()
+
     // ---------- 차량 신호 ----------
 
     /** 차량 신호가 바뀔 때마다 호출합니다. 좌석 슬롯 생성·회수와 주행 상태를 반영합니다. */
@@ -51,6 +58,8 @@ class SessionEngine(
         val queue = cur.queue.filterNot { it.requestedBySeat in leftSeats }
         val votes = cur.skipVotes.filterNot { it in leftSeats }
 
+        val driving = snapshot.driveState == DriveState.DRIVING
+
         var next = cur.copy(
             seats = seats,
             queue = queue,
@@ -59,7 +68,22 @@ class SessionEngine(
             etaSeconds = snapshot.etaSeconds,
             queueTargetMs = snapshot.etaSeconds?.let { it * 1000L },
             skipThreshold = thresholdFor(seats),
+            queueTotalMs = queue.sumOf { it.durationMs.toLong() },
+            // 충전 중 정차면 라운지 모드. 차 안에 갇혀 있는 대기 시간에는
+            // 차례를 기다리게 할 이유가 없어 턴 규칙을 풉니다.
+            mode = if (snapshot.charging && !driving) SessionMode.CHARGING_LOUNGE else SessionMode.NORMAL,
+            // 도착 5분 이내. 안내용 플래그입니다.
+            landing = driving && (snapshot.etaSeconds ?: Int.MAX_VALUE) <= LANDING_SECONDS,
         )
+
+        // 주행 구간 경계를 잡아 드라이브 앨범을 만듭니다
+        val wasDriving = cur.driveState == DriveState.DRIVING.name
+        if (!wasDriving && driving) {
+            tripStartedAt = now()
+            tripTracks.clear()
+        } else if (wasDriving && !driving) {
+            emitAlbum(next)
+        }
 
         // 차례였던 사람이 내렸거나 아직 차례가 없으면 다시 계산합니다
         if (next.turnSeatId == null || next.turnSeatId in leftSeats) {
@@ -95,8 +119,11 @@ class SessionEngine(
             }
 
             ReqType.QUEUE_ADD -> {
-                if (cur.turnSeatId != seatId) return reject(RejectReason.NOT_YOUR_TURN)
+                // 라운지 모드에서는 착석한 아무 좌석이나 바로 넣을 수 있습니다
+                val lounge = cur.mode == SessionMode.CHARGING_LOUNGE
+                if (!lounge && cur.turnSeatId != seatId) return reject(RejectReason.NOT_YOUR_TURN)
                 val seat = cur.seats.firstOrNull { it.seatId == seatId } ?: return reject(RejectReason.SEAT_TAKEN)
+                if (lounge && !seat.occupied) return reject(RejectReason.SEAT_TAKEN)
                 val title = req.title ?: return reject(RejectReason.PROFILE_BLOCKED)
 
                 // 아동 좌석은 아주 긴 곡을 넣지 못합니다 (좌석 프로필 제한의 최소 구현)
@@ -118,7 +145,7 @@ class SessionEngine(
                 )
                 var next = cur.copy(queue = cur.queue + track)
                 if (next.nowPlaying == null) next = playNext(next)
-                next = next.copy(turnSeatId = nextTurn(next, from = seatId))
+                if (!lounge) next = next.copy(turnSeatId = nextTurn(next, from = seatId))
                 commit(next)
             }
 
@@ -177,10 +204,45 @@ class SessionEngine(
     // ---------- 내부 ----------
 
     private fun commit(next: SessionState) {
-        _state.value = next.copy(ts = now())
+        _state.value = next.copy(
+            ts = now(),
+            queueTotalMs = next.queue.sumOf { it.durationMs.toLong() },
+        )
+    }
+
+    /** 재생이 끝나거나 스킵된 곡을 주행 기록에 남깁니다. */
+    private fun remember(track: TrackDto?) {
+        if (track == null) return
+        if (tripStartedAt == null) tripStartedAt = now()
+        tripTracks += AlbumTrack(track.title, track.artist, track.requestedBySeat)
+    }
+
+    private fun emitAlbum(s: SessionState) {
+        val started = tripStartedAt
+        // 들은 곡이 없는 주행은 기록을 남기지 않습니다
+        if (started == null || tripTracks.isEmpty()) {
+            tripStartedAt = null
+            tripTracks.clear()
+            return
+        }
+        val ended = now()
+        onDriveAlbum?.invoke(
+            DriveAlbumMsg(
+                ts = ended,
+                startedAt = started,
+                endedAt = ended,
+                durationMs = ended - started,
+                tracks = tripTracks.toList(),
+                seats = s.seats.filter { it.nickname != null }
+                    .map { AlbumSeat(it.seatId, it.nickname) },
+            )
+        )
+        tripStartedAt = null
+        tripTracks.clear()
     }
 
     private fun playNext(s: SessionState): SessionState {
+        remember(s.nowPlaying)
         val head = s.queue.firstOrNull()
         return s.copy(
             nowPlaying = head?.copy(positionMs = 0),
@@ -199,6 +261,8 @@ class SessionEngine(
 
     companion object {
         const val DEFAULT_DURATION_MS = 210_000
+        /** 도착 몇 초 전부터 랜딩 구간으로 볼지. */
+        const val LANDING_SECONDS = 300
         const val CHILD_MAX_DURATION_MS = 400_000
         const val MAX_PENDING_PER_SEAT = 2
 

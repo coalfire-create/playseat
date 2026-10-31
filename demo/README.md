@@ -15,10 +15,20 @@ node demo/mock-car.mjs --session a3f9 --host localhost:8080
 
 | 키 | 동작 |
 |---|---|
-| `d` | 주행/정차 전환 — 동승자 폰의 권한 UI가 바뀌는지 확인 |
+| `d` | 주행/정차 전환 — 폰의 권한 UI가 바뀌고, 주행이 끝나면 드라이브 앨범이 전송됩니다 |
+| `c` | 충전 토글 — 정차 중이면 충전 라운지 모드 (차례 없이 모두 추가 가능) |
+| `e` | ETA 를 4분으로 — 랜딩 구간 진입 확인 |
 | `1`~`5` | 좌석 착석 토글 (R1L, R1R, R2L, R2C, R2R) — 하차 시 큐·턴 정리 확인 |
 | `n` | 다음 곡 |
 | `q` | 종료 |
+
+시작 상태를 플래그로 지정할 수도 있습니다.
+
+```bash
+node demo/mock-car.mjs --charging            # 충전 라운지 모드로 시작
+node demo/mock-car.mjs --driving --eta 240   # 주행 + 랜딩 구간으로 시작
+node demo/mock-car.mjs --session lounge      # 다른 세션방으로
+```
 
 ## 전체 데모
 

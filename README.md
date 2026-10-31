@@ -79,18 +79,17 @@ Pleos Connect AVD를 띄운 뒤 Android Studio에서 Run 합니다.
 
 | 항목 | 상태 |
 |---|---|
-| 통신 계약 (`contract/protocol.md`) | v0.1.1 확정 |
-| 허브 서버 중계·곡 검색 | 동작. 전체 루프 스모크 테스트 9/9 |
-| 동승자 웹앱 | 기본형 동작 (좌석 참여·검색·큐·투표) |
-| 차량 앱 세션 엔진 | 동작. 단위 테스트 16/16 |
-| 차량 앱 화면 | 좌석 배치도·QR·주행 중 축약 화면 동작 |
-| Pleos SDK 연결 | **미완** — `FakeVehicleSignalSource` 로 대체 중 |
-| STT/TTS, NaviHelper, PlaybackGateway | 미착수 |
-| 계약 v0.2 추가분 (`mode`·`landing`·`queueTotalMs`·`drive.album`) | 설계만 합의, 미구현 |
-
-## 제출용 APK
-
-`apk/Semicolon_플레이시트_release.apk` (구현 완료 후 추가)
+| 통신 계약 (`contract/protocol.md`) | v0.2 — 모든 메시지 양방향 동작 |
+| 허브 서버 중계 | 동작. 통합 테스트 v0.1 9/9 · v0.2 8/8 |
+| 곡 검색 | **스텁** (고정 20곡) — 교체 대상 |
+| 동승자 웹앱 | 좌석 참여·검색·큐·투표·라운지·랜딩·드라이브 앨범 표시 |
+| 차량 앱 세션 엔진 | 동작. 단위 테스트 31/31 |
+| 차량 앱 화면 | 좌석 배치도·QR·주행 중 축약·랜딩·라운지·앨범 카드 |
+| 좌석 턴 · 스킵 과반 · 좌석 프로필 제한 | 동작 |
+| 충전 라운지 모드 · 랜딩 구간 · 드라이브 앨범 | 동작 |
+| 운전자 음성 조작 | Android 표준 TTS/STT 로 동작 |
+| 재생 | 시뮬레이션 (시간만 흐름). MediaSession 위임 미구현 |
+| Pleos SDK 연결 | **미완** — Vehicle·NaviHelper·TTS·STT 모두 자리만 |
 
 ## 통신 계약
 

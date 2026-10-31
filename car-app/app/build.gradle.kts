@@ -19,6 +19,9 @@ android {
         // 허브 주소. 에뮬레이터에서 호스트 PC는 10.0.2.2 입니다.
         buildConfigField("String", "HUB_HOST", "\"10.0.2.2:8080\"")
         buildConfigField("String", "SESSION_ID", "\"a3f9\"")
+
+        // 시뮬레이션 재생 속도. 시연 영상 녹화 때 올려 장거리 주행을 압축합니다.
+        buildConfigField("int", "PLAYBACK_SPEED", "1")
     }
 
     buildTypes {

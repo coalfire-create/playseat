@@ -10,26 +10,31 @@
 
 | 항목 | 차량 앱 | 허브 | 동승자 웹 |
 |---|---|---|---|
-| `state.sync` (seats, turnSeatId, nowPlaying, queue, skipVotes, skipThreshold) | 동작 | 중계 | 표시 |
+| `state.sync` 기본 필드 | 동작 | 중계 | 표시 |
 | `seat.claim` | 동작 | 중계 | 동작 |
 | `queue.add` / `queue.remove` | 동작 | 중계 | 추가만 |
 | `vote.skip` / `reaction.like` / `turn.pass` | 동작 | 중계 | skip·like |
 | `reject` (+`seatId`) | 동작 | 브로드캐스트 | 표시 |
 | `turn.notify` | 동작 | 브로드캐스트 | 표시 |
-| `search.query` / `search.result` | 해당 없음 | **스텁** (고정 목록) | 동작 |
-| `driveState` 전환에 따른 권한 이동 | 동작 | — | 배너만 |
-| `etaSeconds` / `queueTargetMs` | Fake 값 | — | 미사용 |
-| `mode` (CHARGING_LOUNGE) | **미구현** | — | **미구현** |
-| `landing` | **미구현** | — | **미구현** |
-| `queueTotalMs` | **미구현** | — | **미구현** |
-| `drive.album` | **미구현** | — | **미구현** |
+| `driveState` 전환에 따른 권한 이동 | 동작 | — | 동작 |
+| `etaSeconds` / `queueTargetMs` | 동작 (Fake 값이 실제로 흐름) | — | 표시 |
+| `mode` (CHARGING_LOUNGE) | 동작 | — | 동작 |
+| `landing` | 동작 | — | 동작 |
+| `queueTotalMs` | 동작 | — | 표시 |
+| `drive.album` | 동작 | 중계 | 표시 |
+| `search.query` / `search.result` | 해당 없음 | **스텁** (고정 20곡) | 동작 |
 
-**미구현 항목에 의존하는 코드를 먼저 쓰지 마세요.** v0.2 추가분은 설계를 미리 합의해 둔
-것이고, 차량 앱이 내려보내기 시작하면 이 표를 갱신합니다. 그때까지 폰은 해당 필드가
-`undefined` 인 상태를 정상으로 다뤄야 합니다.
+계약 밖의 차량 앱 내부 상태입니다.
 
-차량 신호도 아직 실제 차량에서 오지 않습니다. `FakeVehicleSignalSource` 가 화면의 디버그
-버튼으로 주입하는 값입니다. Pleos Vehicle SDK 연결은 미완입니다.
+| 계층 | 상태 |
+|---|---|
+| 차량 신호 (좌석·도어·기어·충전) | `FakeVehicleSignalSource` — 화면 디버그 버튼으로 주입. **Pleos Vehicle SDK 미연동** |
+| 재생 (`PlaybackGateway`) | `SimulatedPlaybackGateway` — 소리 없이 시간만 흐름. **MediaSession 위임 미구현** |
+| 음성 (`VoiceController`) | Android 표준 TTS·SpeechRecognizer 로 동작. **Pleos TTS/STT SDK 미연동** |
+| 잔여 ETA | Fake 값이 주행 중 1초마다 감소. **NaviHelper 미연동** |
+
+즉 **계약상의 모든 메시지는 양쪽이 주고받을 수 있고**, 아직 실제 차량·실제 음원에
+연결되지 않았을 뿐입니다. 동승자 웹은 차량 신호가 Fake 인지 실제인지 구분할 필요가 없습니다.
 
 ## 원칙
 
@@ -95,11 +100,12 @@
   착석했지만 폰 미연결인 좌석은 좌석도에 "참여 대기"로 표시.
 - `turnSeatId` 가 `null` 이면 턴 대기 상태(예: 주행 시작 전).
 - `etaSeconds`, `queueTargetMs` 는 내비 목적지가 없으면 `null`.
-- `mode`: `"NORMAL"` | `"CHARGING_LOUNGE"` (v0.2 · **미구현**). 충전 중 정차 상태에서 라운지 모드가 켜지고,
+- `mode`: `"NORMAL"` | `"CHARGING_LOUNGE"` (v0.2). 충전 중 정차 상태에서 라운지 모드가 켜지고,
   **이때는 좌석 턴 규칙이 해제되어 아무 좌석이나 곡을 넣을 수 있습니다.** 차 안에 갇혀 있는
   충전 대기 시간에는 차례를 기다리게 할 이유가 없기 때문입니다.
-- `landing`: 도착 5분 이내 (v0.2 · **미구현**). 템포를 낮추고 큐 추가를 더 받지 않는 구간입니다.
-- `queueTotalMs` (v0.2 · **미구현**): 현재 큐의 총 재생 길이. `queueTargetMs` 와 비교해 "도착까지 몇 곡 더"를
+- `landing`: 도착 5분 이내 (v0.2). 안내용 플래그이며 큐 추가를 막지는 않습니다.
+  차량은 랜딩 진입 시 음성 안내를 한 번 하고, 폰은 배너를 띄웁니다.
+- `queueTotalMs` (v0.2): 현재 큐의 총 재생 길이. `queueTargetMs` 와 비교해 "도착까지 몇 곡 더"를
   폰에 표시하는 데 씁니다.
 
 ## 폰 → 서버 → 차량 (요청)
@@ -119,7 +125,7 @@
 |---|---|
 | `state.sync` | 위 전체 상태 |
 | `turn.notify` | `{ seatId, deadlineMs }` — 해당 좌석 폰에 차례 알림 |
-| `drive.album` | `{ startedAt, endedAt, durationMs, tracks: [{ title, artist, requestedBySeat }], seats: [{ seatId, nickname }] }` — 주행이 끝나면 한 번 전송 (v0.2 · **미구현**) |
+| `drive.album` | `{ startedAt, endedAt, durationMs, tracks: [{ title, artist, requestedBySeat }], seats: [{ seatId, nickname }] }` — 주행이 끝나면 한 번 전송 (v0.2) |
 | `reject` | `{ requestType, reason, seatId? }` — `reason`: `NOT_YOUR_TURN` \| `PROFILE_BLOCKED` \| `SEAT_TAKEN` \| `DUPLICATE_VOTE` \| `DRIVING_RESTRICTED` |
 
 ### 수신자 판별 — 허브는 브로드캐스트한다
