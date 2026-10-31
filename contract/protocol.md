@@ -1,4 +1,4 @@
-# 플레이시트 통신 계약 v0.2
+# 플레이시트 통신 계약 v0.3
 
 > 차량 앱(이정한) ↔ 허브 서버(이용준) ↔ 동승자 웹(이용준)
 > 저장소로 옮길 위치: `contract/protocol.md`
@@ -21,8 +21,9 @@
 | `mode` (CHARGING_LOUNGE) | 동작 | — | 동작 |
 | `landing` | 동작 | — | 동작 |
 | `queueTotalMs` | 동작 | — | 표시 |
+| `turnRemainingMs` (v0.3) | 동작 — 1초마다 갱신 | — | 표시 |
 | `drive.album` | 동작 | 중계 | 표시 |
-| `search.query` / `search.result` | 해당 없음 | **동작** — 큐레이션 목록 60곡 + Deezer 보완 | 동작 |
+| `search.query` / `search.result` | 해당 없음 | **동작** — 큐레이션 목록 74곡 + Deezer 보완 | 동작 |
 
 계약 밖의 차량 앱 내부 상태입니다.
 
@@ -89,7 +90,8 @@
   "skipThreshold": 3,
   "mode": "NORMAL",
   "landing": false,
-  "queueTotalMs": 1240000
+  "queueTotalMs": 1240000,
+  "turnRemainingMs": 18000
 }
 ```
 
@@ -100,6 +102,13 @@
 - `occupied` 는 착석 신호, `connected` 는 폰 연결 여부. **둘은 다르다.**
   착석했지만 폰 미연결인 좌석은 좌석도에 "참여 대기"로 표시.
 - `turnSeatId` 가 `null` 이면 턴 대기 상태(예: 주행 시작 전).
+- `turnRemainingMs` (v0.3): 지금 차례인 좌석에 남은 시간. **`turnDeadlineMs` 를 넘기면
+  차량이 순서를 다음 좌석으로 넘깁니다.** 이게 없으면 차례인 사람이 아무것도 하지 않을 때
+  순서가 영영 멈춥니다. 특히 운전석은 주행 중 화면을 만질 수 없고 음성으로도 곡을 추가할
+  수 없어서, 운전석 차례에서 전체가 막혔습니다.
+  `null` 이면 제한시간이 돌고 있지 않다는 뜻이고, 세 경우입니다 —
+  라운지 모드, 착석한 좌석이 하나뿐, 아직 아무도 폰을 연결하지 않음.
+  마지막 경우는 넘겨도 쓸 사람이 없고 차례 안내 음성만 반복되므로 일부러 세웁니다.
 - `etaSeconds`, `queueTargetMs` 는 내비 목적지가 없으면 `null`.
 - `mode`: `"NORMAL"` | `"CHARGING_LOUNGE"` (v0.2). 충전 중 정차 상태에서 라운지 모드가 켜지고,
   **이때는 좌석 턴 규칙이 해제되어 아무 좌석이나 곡을 넣을 수 있습니다.** 차 안에 갇혀 있는
@@ -168,6 +177,8 @@ if (m.type === "turn.notify" && m.seatId === mySeat) showMyTurn();
 
 ## 버전
 
+- `v0.3` — 2026-10-31. `state.sync` 에 선택 필드 `turnRemainingMs` 추가.
+  차례 제한시간이 실제로 적용됩니다. 추가분이며 v0.2 클라이언트는 그대로 동작합니다.
 - `v0.2` — 2026-10-31. `state.sync` 에 선택 필드 `mode`, `landing`, `queueTotalMs` 추가.
   차량 → 폰 메시지 `drive.album` 추가. 모두 추가분이며 v0.1 클라이언트는 그대로 동작합니다.
 - `v0.1.1` — 2026-10-31. `reject` 에 선택 필드 `seatId` 추가. 허브가 브로드캐스트하므로

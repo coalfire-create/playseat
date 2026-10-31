@@ -47,6 +47,13 @@ data class SessionState(
     val landing: Boolean = false,
     /** 현재 큐의 총 재생 길이. queueTargetMs 와 비교해 "도착까지 몇 곡 더"를 보여줍니다. */
     val queueTotalMs: Long = 0,
+    /**
+     * 지금 차례인 좌석에 남은 시간 (v0.3).
+     *
+     * `null` 이면 제한시간이 돌고 있지 않다는 뜻입니다. 라운지 모드이거나,
+     * 돌릴 좌석이 하나뿐이거나, 아직 아무도 폰을 연결하지 않은 경우입니다.
+     */
+    val turnRemainingMs: Int? = null,
 ) {
     companion object { const val TURN_DEADLINE_MS = 30_000 }
 }

@@ -94,6 +94,9 @@
   .waitbar{border:1px solid var(--line);background:var(--card);color:var(--dim);
            border-radius:var(--r);padding:12px 16px;margin-bottom:12px;font-size:13px}
   .waitbar b{color:var(--fg);font-weight:700}
+  /* 남은 시간. 차례가 제한시간을 넘기면 자동으로 다음 좌석으로 넘어갑니다. */
+  .left{color:var(--turn);font-weight:700;font-variant-numeric:tabular-nums}
+  .turnbar .left{font-size:13px}
 
   /* ---------- 상태 띠 ---------- */
   .strip{border-radius:var(--r);padding:12px 14px;margin-bottom:12px;font-size:13px;
@@ -424,12 +427,19 @@ function render() {
 
   // 내 차례
   const ts = $("turnSlot");
+  // 남은 시간이 null 이면 제한시간이 돌지 않는 상황입니다
+  // (라운지·혼자 탑승·아무도 미연결). 그때는 숫자를 띄우지 않습니다.
+  const leftMs = state.turnRemainingMs;
+  const left = leftMs != null ? `${Math.ceil(leftMs / 1000)}초` : null;
+
   if (lounge) ts.replaceChildren();
   else if (canAdd) {
     ts.innerHTML = `<div class="turnbar"><div class="dot"></div><div>
-      <b>당신의 차례입니다</b><small>한 곡을 골라 큐에 넣어주세요</small></div></div>`;
+      <b>당신의 차례입니다</b><small>한 곡을 골라 큐에 넣어주세요${
+        left ? ` · 남은 시간 <span class="left">${left}</span>` : ""}</small></div></div>`;
   } else if (state.turnSeatId) {
-    ts.innerHTML = `<div class="waitbar">다음 선곡 차례 · <b>${label(state.turnSeatId)}</b></div>`;
+    ts.innerHTML = `<div class="waitbar">다음 선곡 차례 · <b>${label(state.turnSeatId)}</b>${
+      left ? ` · <span class="left">${left}</span>` : ""}</div>`;
   } else ts.replaceChildren();
 
   // 상태 띠

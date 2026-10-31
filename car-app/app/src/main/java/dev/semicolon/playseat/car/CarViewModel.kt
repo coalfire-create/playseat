@@ -114,6 +114,15 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
+        // 차례 제한시간을 흐르게 합니다. 재생 위치 갱신과 달리 곡이 없을 때도 돌아야 해서
+        // 별도 루프를 둡니다. 멈춘 순서를 푸는 유일한 장치입니다.
+        viewModelScope.launch {
+            while (isActive) {
+                delay(1000)
+                engine.tick()
+            }
+        }
+
         // Fake 신호원일 때 잔여 ETA 를 실제로 흐르게 합니다
         fake?.let { f ->
             viewModelScope.launch {

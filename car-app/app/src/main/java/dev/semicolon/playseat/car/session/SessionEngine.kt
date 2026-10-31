@@ -34,6 +34,9 @@ class SessionEngine(
     private var tripStartedAt: Long? = null
     private val tripTracks = mutableListOf<AlbumTrack>()
 
+    // 지금 차례가 시작된 시각. commit 에서 차례가 바뀔 때마다 다시 잡습니다.
+    private var turnStartedAt: Long? = null
+
     // ---------- 차량 신호 ----------
 
     /** 차량 신호가 바뀔 때마다 호출합니다. 좌석 슬롯 생성·회수와 주행 상태를 반영합니다. */
@@ -194,6 +197,43 @@ class SessionEngine(
     /** 재생이 끝났을 때. */
     fun trackFinished() = commit(playNext(_state.value))
 
+    // ---------- 차례 제한시간 ----------
+
+    /**
+     * 1초마다 호출합니다. 차례인 좌석이 제한시간 안에 아무것도 하지 않으면 순서를 넘깁니다.
+     *
+     * 이게 없으면 순서가 영영 멈춥니다. 특히 운전석은 주행 중 화면을 만질 수 없고
+     * 음성으로도 곡을 추가할 수 없어서, 운전석 차례에서 전체가 막혔습니다.
+     *
+     * 다만 아무도 폰을 연결하지 않았으면 돌려봐야 아무도 쓰지 못하므로 세우고,
+     * 이때마다 차례 안내 음성이 나가는 것도 막습니다.
+     */
+    fun tick() {
+        val cur = _state.value
+        if (!countdownRuns(cur)) {
+            if (cur.turnRemainingMs != null) commit(cur)
+            return
+        }
+        val started = turnStartedAt ?: now().also { turnStartedAt = it }
+        if (now() - started >= cur.turnDeadlineMs) {
+            commit(cur.copy(turnSeatId = nextTurn(cur, from = cur.turnSeatId)))
+        } else {
+            commit(cur)
+        }
+    }
+
+    /**
+     * 제한시간을 돌릴 상황인지.
+     *
+     * 라운지 모드는 턴 규칙 자체가 풀려 있고, 돌릴 좌석이 하나뿐이면 넘겨도 제자리입니다.
+     * 아무도 폰을 연결하지 않았으면 누구에게 넘겨도 쓸 수 없으니 그대로 둡니다.
+     */
+    private fun countdownRuns(s: SessionState): Boolean =
+        s.mode == SessionMode.NORMAL &&
+            s.turnSeatId != null &&
+            s.seats.count { it.occupied } >= 2 &&
+            s.seats.any { it.connected }
+
     /** 재생 위치 갱신 (PlaybackGateway 가 주기적으로 호출). */
     fun updatePosition(positionMs: Int) {
         val cur = _state.value
@@ -204,9 +244,18 @@ class SessionEngine(
     // ---------- 내부 ----------
 
     private fun commit(next: SessionState) {
+        // 차례가 바뀌었으면 제한시간을 처음부터 다시 셉니다.
+        if (next.turnSeatId != _state.value.turnSeatId) {
+            turnStartedAt = if (next.turnSeatId == null) null else now()
+        }
+        val remaining = turnStartedAt
+            ?.takeIf { countdownRuns(next) }
+            ?.let { (next.turnDeadlineMs - (now() - it)).coerceIn(0L, next.turnDeadlineMs.toLong()).toInt() }
+
         _state.value = next.copy(
             ts = now(),
             queueTotalMs = next.queue.sumOf { it.durationMs.toLong() },
+            turnRemainingMs = remaining,
         )
     }
 

@@ -18,6 +18,11 @@ class SessionEngineTest {
 
     private fun engine() = SessionEngine("test", now = { 0L })
 
+    /** 제한시간 검사용. clock[0] 을 밀어 시간을 흐르게 합니다. */
+    private class Clock(var ms: Long = 0L)
+
+    private fun engineWith(clock: Clock) = SessionEngine("test", now = { clock.ms })
+
     private fun snapshot(
         occupied: Set<String>,
         drive: DriveState = DriveState.PARKED,
@@ -335,5 +340,131 @@ class SessionEngineTest {
         assertEquals(2, albums.size)
         assertEquals(listOf("1회차곡"), albums[0].tracks.map { it.title })
         assertEquals(listOf("2회차곡"), albums[1].tracks.map { it.title })
+    }
+
+    // ---------- 차례 제한시간 ----------
+
+    @Test
+    fun `차례가 제한시간을 넘기면 다음 좌석으로 넘어간다`() {
+        val clock = Clock()
+        val e = engineWith(clock)
+        e.onVehicle(snapshot(setOf(SeatId.R1R, SeatId.R2L, SeatId.R2R)))
+        claim(e, SeatId.R1R, "dev_a")
+        val first = e.state.value.turnSeatId!!
+
+        clock.ms += SessionState.TURN_DEADLINE_MS.toLong()
+        e.tick()
+
+        assertTrue(e.state.value.turnSeatId != first)
+    }
+
+    @Test
+    fun `제한시간 전에는 차례가 그대로다`() {
+        val clock = Clock()
+        val e = engineWith(clock)
+        e.onVehicle(snapshot(setOf(SeatId.R1R, SeatId.R2L)))
+        claim(e, SeatId.R1R, "dev_a")
+        val first = e.state.value.turnSeatId!!
+
+        clock.ms += SessionState.TURN_DEADLINE_MS - 1000L
+        e.tick()
+
+        assertEquals(first, e.state.value.turnSeatId)
+    }
+
+    @Test
+    fun `곡을 넣으면 제한시간이 처음부터 다시 센다`() {
+        val clock = Clock()
+        val e = engineWith(clock)
+        e.onVehicle(snapshot(setOf(SeatId.R1R, SeatId.R2L)))
+        claim(e, SeatId.R1R, "dev_a")
+        claim(e, SeatId.R2L, "dev_b")
+
+        clock.ms += 20_000
+        add(e, e.state.value.turnSeatId!!, "곡1")
+        val afterAdd = e.state.value.turnSeatId!!
+
+        // 직전 차례에서 20초가 지났더라도 새 차례는 다시 30초를 받습니다
+        clock.ms += 20_000
+        e.tick()
+        assertEquals(afterAdd, e.state.value.turnSeatId)
+    }
+
+    @Test
+    fun `운전석 차례도 제한시간이 지나면 넘어간다`() {
+        val clock = Clock()
+        val e = engineWith(clock)
+        e.onVehicle(snapshot(setOf(SeatId.R1L, SeatId.R1R)))
+        claim(e, SeatId.R1R, "dev_a")
+
+        // 운전석까지 순서를 돌립니다
+        var guard = 0
+        while (e.state.value.turnSeatId != SeatId.R1L && guard++ < 10) {
+            clock.ms += SessionState.TURN_DEADLINE_MS.toLong()
+            e.tick()
+        }
+        assertEquals(SeatId.R1L, e.state.value.turnSeatId)
+
+        // 운전자는 음성으로도 곡을 추가할 수 없습니다. 여기서 멈추면 안 됩니다.
+        clock.ms += SessionState.TURN_DEADLINE_MS.toLong()
+        e.tick()
+        assertEquals(SeatId.R1R, e.state.value.turnSeatId)
+    }
+
+    @Test
+    fun `아무도 폰을 연결하지 않았으면 제한시간이 돌지 않는다`() {
+        val clock = Clock()
+        val e = engineWith(clock)
+        e.onVehicle(snapshot(setOf(SeatId.R1R, SeatId.R2L)))
+        val first = e.state.value.turnSeatId!!
+
+        clock.ms += SessionState.TURN_DEADLINE_MS * 5L
+        e.tick()
+
+        // 넘겨 봐야 아무도 쓸 수 없고, 차례 안내 음성만 반복됩니다
+        assertEquals(first, e.state.value.turnSeatId)
+        assertNull(e.state.value.turnRemainingMs)
+    }
+
+    @Test
+    fun `라운지 모드에서는 제한시간이 돌지 않는다`() {
+        val clock = Clock()
+        val e = engineWith(clock)
+        e.onVehicle(snapshot(setOf(SeatId.R1R, SeatId.R2L), charging = true))
+        claim(e, SeatId.R1R, "dev_a")
+        val first = e.state.value.turnSeatId
+
+        clock.ms += SessionState.TURN_DEADLINE_MS * 3L
+        e.tick()
+
+        assertEquals(first, e.state.value.turnSeatId)
+        assertNull(e.state.value.turnRemainingMs)
+    }
+
+    @Test
+    fun `혼자 타고 있으면 제한시간이 돌지 않는다`() {
+        val clock = Clock()
+        val e = engineWith(clock)
+        e.onVehicle(snapshot(setOf(SeatId.R2L)))
+        claim(e, SeatId.R2L, "dev_a")
+
+        clock.ms += SessionState.TURN_DEADLINE_MS * 3L
+        e.tick()
+
+        assertEquals(SeatId.R2L, e.state.value.turnSeatId)
+        assertNull(e.state.value.turnRemainingMs)
+    }
+
+    @Test
+    fun `남은 시간이 상태에 실려 나간다`() {
+        val clock = Clock()
+        val e = engineWith(clock)
+        e.onVehicle(snapshot(setOf(SeatId.R1R, SeatId.R2L)))
+        claim(e, SeatId.R1R, "dev_a")
+
+        clock.ms += 10_000
+        e.tick()
+
+        assertEquals(SessionState.TURN_DEADLINE_MS - 10_000, e.state.value.turnRemainingMs)
     }
 }

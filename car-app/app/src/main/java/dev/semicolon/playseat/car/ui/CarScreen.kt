@@ -259,7 +259,10 @@ private fun SeatTile(state: SessionState, seatId: String, glow: Float, modifier:
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (isTurn) {
-                Pill("선곡 차례", TurnColor)
+                // 남은 시간을 같이 보여 줍니다. 제한시간이 돌지 않는 상황
+                // (라운지·혼자 탑승·아무도 미연결)에서는 숫자가 없습니다.
+                val left = state.turnRemainingMs
+                Pill(if (left == null) "선곡 차례" else "선곡 차례 · ${left / 1000}초", TurnColor)
                 Spacer(Modifier.height(14.dp))
             }
             Text(
@@ -496,8 +499,9 @@ private fun TurnOrderStrip(state: SessionState) {
                 ) {
                     Box(Modifier.size(8.dp).clip(CircleShape).background(c))
                     Spacer(Modifier.width(8.dp))
+                    val left = state.turnRemainingMs
                     Text(
-                        SEAT_SHORT[id] ?: id,
+                        if (current && left != null) "${SEAT_SHORT[id]} ${left / 1000}초" else (SEAT_SHORT[id] ?: id),
                         fontSize = 18.sp,
                         color = if (current) TurnColor else Dim,
                         fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
@@ -679,7 +683,12 @@ private fun DrivingView(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(11.dp).clip(CircleShape).background(TurnColor))
                 Spacer(Modifier.width(12.dp))
-                Text("다음 선곡 차례 · ${label(it)}", color = Dim, fontSize = 22.sp)
+                Text(
+                    state.turnRemainingMs
+                        ?.let { ms -> "다음 선곡 차례 · ${label(it)} · ${ms / 1000}초" }
+                        ?: "다음 선곡 차례 · ${label(it)}",
+                    color = Dim, fontSize = 22.sp,
+                )
             }
         }
     }
