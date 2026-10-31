@@ -1,85 +1,99 @@
 package dev.semicolon.playseat.car.ui
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 /**
- * 헤드유닛 기준 테마.
+ * Pleos Connect 시스템 UI 와 같은 색을 씁니다.
  *
- * 화면은 12.8인치 2560x1440 / 160dpi 이고, 앱이 쓰는 영역은 1682x1210dp 입니다.
- * 보는 거리가 70cm 안팎이라 폰 기준 타이포(11~14sp)는 그대로 쓸 수 없습니다.
- * 본문 20sp, 카드 제목 24sp, 곡 제목 36sp 이상을 기준으로 잡았습니다.
+ * 값은 추측이 아니라 에뮬레이터(Pleos Connect v2.1.0)의 차량 설정 화면을
+ * 캡처해 픽셀에서 뽑은 것입니다. 주간·야간 모두 받아 두었습니다.
  *
- * 야간 주행 비중이 높아 다크 고정이고, 배경은 완전한 검정 대신
- * 위에서 아래로 아주 옅게 떨어지는 그라디언트를 씁니다.
+ * 왜 플랫폼을 그대로 따르는가
+ *   헤드유닛은 앱 하나를 쓰는 기기가 아닙니다. 내비·전화·차량설정 사이를
+ *   계속 오가기 때문에, 우리 앱만 다른 언어를 쓰면 "나중에 얹은 것" 으로 보입니다.
+ *   색·면 나누는 방식·타이포를 맞추면 그냥 차의 기능처럼 읽힙니다.
  *
- * 면은 테두리로 나누지 않고 밝기 차이로만 나눕니다. 선이 많으면
- * 흔들리는 차 안에서 시선이 분산되고, 운전 중에 훑어야 하는 화면에서는
- * "어디를 봐야 하는지" 가 흐려집니다. 테두리를 쓰는 곳은 지금 차례인
- * 좌석 하나뿐이고, 그래서 그 하나가 멀리서도 바로 보입니다.
+ * 관찰한 규칙
+ *   - 면은 둥근 카드로 띄우지 않고, 1dp 헤어라인으로 나눈 평면 셀로 붙입니다
+ *   - 셀은 [아이콘 → 이름(굵게) → 상태값(작게)] 순서로 왼쪽 정렬합니다
+ *   - 색은 거의 쓰지 않습니다. 파랑은 '지금 활성' 인 값 하나에만 씁니다
+ *   - 선택된 셀은 배경을 한 단계 올리고(#F0F0F0) 값 글자를 파랑으로 바꿉니다
+ *   - 선택된 세그먼트·탭은 검정으로 채우고 글자를 흰색으로 뒤집습니다
  */
-
-internal val Bg = Color(0xFF05070A)
-internal val BgTop = Color(0xFF0D141E)
-internal val Surface1 = Color(0xFF111823)
-internal val Surface2 = Color(0xFF18212E)
-internal val Line = Color(0xFF2A3341)
-internal val LineSoft = Color(0xFF1C2430)
-
-internal val TextHi = Color(0xFFEDF1F7)
-internal val Dim = Color(0xFF8B95A7)
-internal val Faint = Color(0xFF5B6575)
-
-internal val Accent = Color(0xFF4FA8FF)
-internal val TurnColor = Color(0xFFFFC061)
-internal val LoungeColor = Color(0xFF45D184)
-internal val CardColor = Surface1
-
-/** 배경 그라디언트. 위쪽이 살짝 밝아 화면이 납작해 보이지 않습니다. */
-internal val BgBrush = Brush.verticalGradient(listOf(BgTop, Bg))
-
-/**
- * 좌석마다 고유색을 둡니다.
- *
- * 좌석도·대기열·지금 재생에서 같은 색을 반복해서 쓰기 때문에,
- * 글자를 읽지 않아도 "누가 고른 곡인가"가 보입니다.
- * 뒷좌석에서 앞 화면까지는 1m 가까이 떨어져 있어
- * 좌석 이름을 읽게 만드는 것보다 색으로 구분시키는 편이 빠릅니다.
- *
- * 운전석만 무채색입니다. 운전자는 선곡의 주체가 아니라는
- * 이 제품의 명제를 색으로도 말합니다.
- */
-internal val SEAT_COLOR = mapOf(
-    "R1L" to Color(0xFF6E7A8C),
-    "R1R" to Color(0xFF4FA8FF),
-    "R2L" to Color(0xFF3BD6B5),
-    "R2C" to Color(0xFFC58CFF),
-    "R2R" to Color(0xFFFF9B5A),
+data class Palette(
+    val bg: Color,
+    val cell: Color,
+    val cellActive: Color,
+    val line: Color,
+    val text: Color,
+    val sub: Color,
+    val accent: Color,
+    /** 눌린 세그먼트처럼 반전시켜 쓰는 면. 주간엔 검정, 야간엔 흰색입니다. */
+    val inverse: Color,
+    val onInverse: Color,
 )
 
-internal fun seatColor(seatId: String?): Color = SEAT_COLOR[seatId] ?: Dim
-
-/** 지금 재생 중인 곡의 아트 자리. 곡을 고른 좌석의 색으로 칠합니다. */
-internal fun seatBrush(c: Color) =
-    Brush.linearGradient(listOf(c.copy(alpha = 0.95f), c.copy(alpha = 0.30f)))
-
-private val scheme = darkColorScheme(
-    primary = Accent,
-    onPrimary = Color(0xFF04121F),
-    secondary = TurnColor,
-    background = Bg,
-    onBackground = TextHi,
-    surface = Surface1,
-    onSurface = TextHi,
-    surfaceVariant = Surface2,
-    onSurfaceVariant = Dim,
-    outline = Line,
+internal val DayPalette = Palette(
+    bg = Color(0xFFFFFFFF),
+    cell = Color(0xFFFFFFFF),
+    cellActive = Color(0xFFF0F0F0),
+    line = Color(0xFFD6D6D6),
+    text = Color(0xFF000000),
+    sub = Color(0xFF7C7C7C),
+    accent = Color(0xFF1262F5),
+    inverse = Color(0xFF000000),
+    onInverse = Color(0xFFFFFFFF),
 )
+
+internal val NightPalette = Palette(
+    bg = Color(0xFF151515),
+    cell = Color(0xFF151515),
+    cellActive = Color(0xFF222222),
+    line = Color(0xFF333333),
+    text = Color(0xFFDDDDDD),
+    sub = Color(0xFF8E8E8E),
+    accent = Color(0xFF1262F5),
+    inverse = Color(0xFFFFFFFF),
+    onInverse = Color(0xFF111111),
+)
+
+val LocalPalette = staticCompositionLocalOf { DayPalette }
+
+/** 지금 팔레트. `pal.text` 처럼 짧게 쓰려고 둡니다. */
+val pal: Palette
+    @Composable get() = LocalPalette.current
 
 @Composable
 fun PlaySeatTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = scheme, content = content)
+    // 차량 설정의 주간·야간 전환을 그대로 따릅니다.
+    // 밤에 흰 화면이 켜지면 눈이 부셔서 운전에 방해가 됩니다.
+    val night = isSystemInDarkTheme()
+    val p = if (night) NightPalette else DayPalette
+
+    val scheme = if (night) {
+        darkColorScheme(
+            primary = p.accent, onPrimary = Color.White,
+            background = p.bg, onBackground = p.text,
+            surface = p.cell, onSurface = p.text,
+            outline = p.line,
+        )
+    } else {
+        lightColorScheme(
+            primary = p.accent, onPrimary = Color.White,
+            background = p.bg, onBackground = p.text,
+            surface = p.cell, onSurface = p.text,
+            outline = p.line,
+        )
+    }
+
+    CompositionLocalProvider(LocalPalette provides p) {
+        MaterialTheme(colorScheme = scheme, content = content)
+    }
 }
