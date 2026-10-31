@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  허브는 차 안(또는 시연장) 로컬 네트워크에서만 도는 서버입니다.
+  공인 도메인도 인증서도 없어서 ws:// 평문으로 붙습니다.
+
+  Android 9 부터는 평문 통신이 기본 차단이라, 이 선언이 없으면
+  "CLEARTEXT communication to 10.0.2.2 not permitted by network security policy"
+  로 연결이 전부 실패합니다. 에뮬레이터에서 실제로 겪은 문제입니다.
+
+  허브 주소는 BuildConfig.HUB_HOST 로 바뀌기 때문에(시연장 노트북 IP 등)
+  특정 도메인만 여는 방식은 쓸 수 없습니다. 대신 이 앱이 외부로 보내는
+  트래픽은 허브 한 곳뿐이라, 범위를 넓게 여는 대가가 크지 않습니다.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
