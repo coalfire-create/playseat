@@ -1,0 +1,49 @@
+# --- 비밀·로컬 설정 (절대 커밋 금지) ---
+local.properties
+*.keystore
+*.jks
+.env
+.env.*
+!.env.example
+secrets.properties
+
+# --- Android / Gradle ---
+.gradle/
+build/
+captures/
+.cxx/
+*.apk
+!apk/*.apk
+*.aab
+*.ap_
+*.dex
+local.properties
+
+# --- IDE ---
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# --- Node (passenger-web, demo) ---
+node_modules/
+dist/
+.next/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# --- Python (demo 스크립트) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- 제출 문서는 이 저장소에 두지 않는다 (개인정보 포함) ---
+*.docx
