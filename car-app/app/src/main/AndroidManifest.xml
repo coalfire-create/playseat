@@ -46,6 +46,21 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!--
+              주행 중에도 화면을 유지하기 위한 선언입니다.
+              이 선언이 없으면 AAOS 가 기어 D 진입 시 앱 전체를
+              "주행 중에는 사용할 수 없습니다" 안내로 덮어버립니다.
+              (Pleos Connect v2.1.0 에뮬레이터에서 확인)
+
+              선언의 전제는 CarScreen.DrivingView 가 지키고 있습니다.
+              주행 중에는 목록·검색·키보드를 걷어내고 터치 타깃을 2개로 줄이며,
+              선곡 조작 자체가 동승자 폰으로 넘어갑니다. 운전자 화면에는
+              지금 재생 중인 곡과 다음 차례만 남습니다.
+            -->
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
         </activity>
     </application>
 </manifest>

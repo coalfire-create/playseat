@@ -37,6 +37,16 @@ import kotlinx.coroutines.flow.update
  *   차종에 따라 착석 센서가 없을 수 있습니다. `checkSeatOccupancyCapabilities` 가
  *   돌려주는 좌석 목록만 구독하고, 지원 좌석이 없으면 안전벨트 착용 상태로 대체합니다.
  *   둘 다 없으면 좌석이 비어 있는 상태로 남고, 사용자가 좌석을 직접 지정하게 됩니다.
+ *
+ * 착석 Boolean 역전 보정 ([OCCUPANCY_BOOLEAN_IS_INVERTED])
+ *   Pleos Connect v2.1.0 에뮬레이터에서 실측한 결과, Vehicle 2.3.2 의
+ *   `SeatOccupancyListener`/`getCurrentSeatOccupancy` 가 넘기는 Boolean 이
+ *   실제 착석과 반대입니다. Virtual Console 로 네 좌석을 모두 착석시키면
+ *   VHAL 은 AAOS 표준대로 `SEAT_OCCUPANCY=2`(OCCUPIED)를 올리는데,
+ *   SDK 는 그 좌석들을 `false` 로 전달했습니다. (빈 좌석 raw 1 → `true`)
+ *   SDK 가 `value == VACANT` 를 참으로 보는 것으로 보입니다.
+ *   그대로 쓰면 "앉으면 빠지고 비면 들어오는" 정반대 동작이 되므로 뒤집습니다.
+ *   SDK 가 고쳐지면 아래 상수만 false 로 바꾸면 됩니다.
  */
 class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSource {
 
@@ -91,11 +101,11 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
 
     private fun subscribeOccupancy(seat: ai.pleos.playground.vehicle.api.Seat, seatId: String) {
         val area = areaOf(seatId) ?: return
-        seat.getCurrentSeatOccupancy(area, { occupied -> setOccupied(seatId, occupied == true) }, { e ->
+        seat.getCurrentSeatOccupancy(area, { raw -> setOccupied(seatId, readOccupancy(raw)) }, { e ->
             Log.w(TAG, "$seatId 착석 조회 실패: ${e.message}")
         })
         val l = object : SeatOccupancyListener {
-            override fun onSeatOccupancyUpdated(occupied: Boolean?) = setOccupied(seatId, occupied == true)
+            override fun onSeatOccupancyUpdated(raw: Boolean?) = setOccupied(seatId, readOccupancy(raw))
             override fun onFailed(e: Exception) {
                 Log.w(TAG, "$seatId 착석 콜백 오류: ${e.message}")
             }
@@ -300,6 +310,16 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
 
     companion object {
         private const val TAG = "PleosVehicle"
+
+        /**
+         * Vehicle 2.3.2 의 착석 Boolean 이 실제와 반대라서 뒤집습니다.
+         * SDK 가 바로잡히면 false 로 두면 됩니다. 근거는 클래스 KDoc 참고.
+         */
+        private const val OCCUPANCY_BOOLEAN_IS_INVERTED = true
+
+        /** SDK 가 준 착석 Boolean 을 "사람이 앉아 있다" 로 해석합니다. */
+        internal fun readOccupancy(raw: Boolean?): Boolean =
+            if (raw == null) false else raw != OCCUPANCY_BOOLEAN_IS_INVERTED
 
         /** 좌석 ID ↔ Pleos SeatValue 매핑. 3열은 현재 쓰지 않습니다. */
         private val SEAT_MAP = mapOf(
