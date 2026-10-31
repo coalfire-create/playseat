@@ -513,8 +513,9 @@ function renderResults(msg) {
     b.className = "sm primary"; b.textContent = "추가"; b.disabled = !canAdd;
     b.onclick = () => {
       // 낙관적 업데이트를 하지 않습니다. 다음 state.sync 로만 반영됩니다.
+      // 커버 주소를 같이 넘깁니다. 차량 화면이 다시 찾지 않도록 폰이 들고 가는 값입니다.
       send({ type:"queue.add", seatId:mySeat, title:t.title, artist:t.artist,
-             durationMs:t.durationMs, externalId:t.externalId });
+             durationMs:t.durationMs, externalId:t.externalId, artworkUrl:t.artworkUrl });
     };
     li.append(b);
     ul.append(li);

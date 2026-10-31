@@ -1,9 +1,12 @@
 package dev.semicolon.playseat.car.ui
 
 import androidx.compose.foundation.BorderStroke
+import coil.compose.AsyncImage
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.semicolon.playseat.car.session.DriveAlbumMsg
@@ -78,9 +82,9 @@ fun CarScreen(
             // 주행 중에는 운전자 화면을 축약하고 조작 권한을 동승자에게 넘깁니다.
             // 이 분기가 플레이시트의 핵심 주장이고, AAOS 주의분산 제한의 전제이기도 합니다.
             Row(Modifier.weight(1f)) {
-                Column(Modifier.weight(1.06f)) {
+                Column(Modifier.weight(0.92f)) {
                     if (state.mode == SessionMode.CHARGING_LOUNGE) { LoungeNotice(); HLine() }
-                    SeatGrid(state, onDriverPassTurn, Modifier)
+                    SeatMap(state, onDriverPassTurn, Modifier)
                     HLine()
                     TurnOrderRow(state)
                     HLine()
@@ -149,12 +153,16 @@ private fun LoungeNotice() {
 /**
  * 좌석도.
  *
- * Pleos 의 빠른 설정이 창문·도어·충전구를 셀로 늘어놓는 방식 그대로입니다.
- * 1열 둘 / 2열 셋으로 두어 자리 배치가 그대로 읽히고, 지금 차례인 좌석만
- * 배경을 한 단계 올리고 값 글자를 파랑으로 바꿉니다 — 시스템의 '활성' 표기와 같습니다.
+ * 차를 위에서 내려다본 그림 위에 좌석을 얹습니다. Pleos 의 차량 설정도
+ * 같은 방식이고, 표로 늘어놓는 것보다 "어느 자리인가" 가 형태로 바로 읽힙니다.
+ * 앞이 위쪽입니다.
+ *
+ * 좌석 안에는 이름과 사람만 둡니다. 남은 시간 같은 숫자를 넣으면
+ * 좁은 칸에 글자가 몰려 멀리서 읽을 수 없습니다. 지금 차례는
+ * 테두리와 아래 띠로 알리고, 자세한 건 바로 아래 선곡 순서 줄이 말합니다.
  */
 @Composable
-private fun SeatGrid(state: SessionState, onPassTurn: () -> Unit, modifier: Modifier) {
+private fun SeatMap(state: SessionState, onPassTurn: () -> Unit, modifier: Modifier) {
     val p = pal
     val lounge = state.mode == SessionMode.CHARGING_LOUNGE
 
@@ -173,80 +181,106 @@ private fun SeatGrid(state: SessionState, onPassTurn: () -> Unit, modifier: Modi
                 }
             }
         }
-        HLine()
-        // 셀 높이를 고정합니다. 남은 세로를 전부 나눠 가지면 큰 셀 안에서
-        // 아이콘과 글자가 멀찍이 떨어져 빈 상자처럼 보입니다.
-        Row(Modifier.fillMaxWidth().height(SEAT_ROW_H)) {
-            SeatCell(state, SeatId.R1L, Modifier.weight(1f).fillMaxHeight())
-            VLine()
-            SeatCell(state, SeatId.R1R, Modifier.weight(1f).fillMaxHeight())
-        }
-        HLine()
-        Row(Modifier.fillMaxWidth().height(SEAT_ROW_H)) {
-            SeatCell(state, SeatId.R2L, Modifier.weight(1f).fillMaxHeight())
-            VLine()
-            SeatCell(state, SeatId.R2C, Modifier.weight(1f).fillMaxHeight())
-            VLine()
-            SeatCell(state, SeatId.R2R, Modifier.weight(1f).fillMaxHeight())
+
+        Box(
+            Modifier.fillMaxWidth().height(CAR_VIEW_H),
+            contentAlignment = Alignment.Center,
+        ) {
+            // 실제 차를 위에서 보면 세로로 깁니다. 가로로 늘리면 차로 안 보입니다.
+            BoxWithConstraints(Modifier.fillMaxHeight().aspectRatio(CAR_ASPECT)) {
+                val w = maxWidth
+                val h = maxHeight
+                CarTopView(Modifier.matchParentSize(), line = p.line, glass = p.glass)
+
+                SeatSpot(state, SeatId.R1L, w * 0.135f, h * 0.255f, w * 0.29f, h * 0.215f)
+                SeatSpot(state, SeatId.R1R, w * 0.575f, h * 0.255f, w * 0.29f, h * 0.215f)
+
+                SeatSpot(state, SeatId.R2L, w * 0.115f, h * 0.555f, w * 0.245f, h * 0.215f)
+                SeatSpot(state, SeatId.R2C, w * 0.3775f, h * 0.555f, w * 0.245f, h * 0.215f)
+                SeatSpot(state, SeatId.R2R, w * 0.64f, h * 0.555f, w * 0.245f, h * 0.215f)
+            }
         }
     }
 }
 
-private val SEAT_ROW_H = 290.dp
-
+/** 차 그림 위에 놓이는 좌석 하나. */
 @Composable
-private fun SeatCell(state: SessionState, seatId: String, modifier: Modifier) {
+private fun SeatSpot(
+    state: SessionState,
+    seatId: String,
+    x: Dp, y: Dp, w: Dp, h: Dp,
+) {
     val p = pal
     val seat: SeatDto? = state.seats.firstOrNull { it.seatId == seatId }
     val occupied = seat?.occupied == true
     val isTurn = state.turnSeatId == seatId && state.mode != SessionMode.CHARGING_LOUNGE
     val nickname = seat?.nickname
 
-    val value = when {
-        isTurn -> state.turnRemainingMs?.let { "선곡 차례 · ${it / 1000}초" } ?: "선곡 차례"
-        !occupied -> "빈 좌석"
-        nickname != null -> nickname
-        seatId == SeatId.R1L -> "음성으로 참여"
-        else -> "QR 스캔 대기"
-    }
-
-    Box(modifier.background(if (isTurn) p.cellActive else p.cell)) {
-        // 아이콘은 위, 글자는 아래. Pleos 의 설정 셀이 쓰는 배치입니다.
-        // 가운데로 모으면 큰 셀 안에서 내용이 둥둥 뜹니다.
-        Column(
-            Modifier.fillMaxSize().padding(32.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
+    Column(Modifier.offset(x, y).size(w, h)) {
+        // 헤드레스트. 위에서 봐도 좌석으로 읽히게 하는 유일한 단서입니다.
+        Box(
+            Modifier.align(Alignment.CenterHorizontally).fillMaxWidth(0.46f).height(10.dp)
+                .clip(RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp))
+                .background(if (isTurn) p.accent else if (occupied) p.sub else p.line)
+        )
+        Box(
+            Modifier.fillMaxSize()
+                .clip(RoundedCornerShape(14.dp))
+                // 앉아 있는 좌석은 흰 면으로 띄우고, 빈 좌석은 실내 바닥 그대로 둡니다.
+                // 둘 다 회색이면 타고 있는지 아닌지가 구분되지 않습니다.
+                .background(
+                    when {
+                        isTurn -> p.accent.copy(alpha = 0.14f)
+                        occupied -> p.cell
+                        else -> Color.Transparent
+                    }
+                )
+                .border(
+                    width = if (isTurn) 2.dp else 1.dp,
+                    color = if (isTurn) p.accent else p.line,
+                    shape = RoundedCornerShape(14.dp),
+                ),
+            contentAlignment = Alignment.Center,
         ) {
-            SeatIcon(44.dp, if (occupied) p.text else p.sub)
-            Column {
-            Text(
-                label(seatId), fontSize = 28.sp, fontWeight = FontWeight.SemiBold,
-                color = if (occupied) p.text else p.sub,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                value, fontSize = 21.sp,
-                color = if (isTurn) p.accent else p.sub,
-                fontWeight = if (isTurn) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            val picks = state.queue.count { it.requestedBySeat == seatId }
-            if (picks > 0) {
-                Spacer(Modifier.height(6.dp))
-                Text("대기 ${picks}곡", fontSize = 19.sp, color = p.sub)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    label(seatId), fontSize = 22.sp, fontWeight = FontWeight.SemiBold,
+                    color = if (occupied) p.text else p.sub, maxLines = 1,
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    when {
+                        !occupied -> "빈 좌석"
+                        nickname != null -> nickname
+                        seatId == SeatId.R1L -> "음성"
+                        else -> "대기"
+                    },
+                    fontSize = 18.sp,
+                    color = if (isTurn) p.accent else p.sub,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
-            if (seat?.profile == SeatProfile.CHILD && occupied) {
-                Spacer(Modifier.height(6.dp))
-                Text("아동 프로필", fontSize = 19.sp, color = p.sub)
+            // 남은 시간은 좌석 아래를 가로지르는 띠로. 숫자보다 길이가 빨리 읽힙니다.
+            val left = state.turnRemainingMs
+            if (isTurn && left != null) {
+                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp)) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(
+                                (left.toFloat() / state.turnDeadlineMs.coerceAtLeast(1))
+                                    .coerceIn(0f, 1f)
+                            )
+                            .fillMaxHeight().background(p.accent)
+                    )
+                }
             }
-            }
-        }
-        // 활성 표시. Pleos 가 작업표시줄에서 쓰는 밑줄과 같은 방식입니다.
-        if (isTurn) {
-            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(p.accent))
         }
     }
 }
+
+private val CAR_VIEW_H = 700.dp
+/** 가로/세로. 위에서 본 차는 세로로 깁니다. */
+private const val CAR_ASPECT = 0.56f
 
 /** 선곡이 좌석을 어떤 순서로 도는지. 운전석이 맨 뒤인 것도 설계입니다. */
 @Composable
@@ -326,10 +360,7 @@ private fun NowPlaying(state: SessionState, onSkip: () -> Unit) {
         Spacer(Modifier.height(24.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(136.dp).background(p.cellActive),
-                contentAlignment = Alignment.Center,
-            ) { NoteIcon(56.dp, p.sub) }
+            Artwork(np?.artworkUrl, 152.dp, 60.dp)
             Spacer(Modifier.width(28.dp))
             Column(Modifier.weight(1f)) {
                 if (np == null) {
@@ -423,7 +454,9 @@ private fun QueueRow(index: Int, t: TrackDto) {
         Modifier.fillMaxWidth().height(96.dp).padding(horizontal = 40.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("$index", Modifier.width(44.dp), fontSize = 21.sp, color = p.sub)
+        Text("$index", Modifier.width(40.dp), fontSize = 21.sp, color = p.sub)
+        Artwork(t.artworkUrl, 60.dp, 26.dp)
+        Spacer(Modifier.width(20.dp))
         Column(Modifier.weight(1f)) {
             Text(t.title, fontSize = 24.sp, color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(5.dp))
@@ -575,6 +608,32 @@ private fun DrivingView(
 }
 
 /* ---------------- 공통 ---------------- */
+
+/**
+ * 앨범 커버.
+ *
+ * 주소는 폰이 검색 결과에서 받아 `queue.add` 로 넘겨 준 값입니다(계약 v0.4).
+ * 차량은 다시 찾지 않습니다 — 검색은 허브의 일이고 차량 앱은 검색을 모릅니다.
+ *
+ * 큐레이션 목록 곡은 커버가 없을 수 있어서 없을 때를 항상 그립니다.
+ * 자리를 비우면 목록의 줄 높이가 들쭉날쭉해집니다.
+ */
+@Composable
+private fun Artwork(url: String?, size: Dp, iconSize: Dp) {
+    val p = pal
+    Box(Modifier.size(size).background(p.cellActive), contentAlignment = Alignment.Center) {
+        if (url.isNullOrBlank()) {
+            NoteIcon(iconSize, p.sub)
+        } else {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
+    }
+}
 
 /** 면을 나누는 1dp 가로선. 둥근 카드 대신 이것으로 구역을 만듭니다. */
 @Composable

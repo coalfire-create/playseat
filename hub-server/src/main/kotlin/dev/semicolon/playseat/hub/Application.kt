@@ -12,6 +12,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
@@ -30,6 +31,13 @@ fun main() {
 }
 
 fun Application.hubModule() {
+    // 큐레이션 목록 곡의 앨범 커버를 뒤에서 채웁니다.
+    // 시작을 막지 않고, 실패하면 커버 없이 그대로 돕니다.
+    launch {
+        runCatching { MusicSearch.warmCatalogArtwork() }
+            .onFailure { log.warn("커버 예열 실패: {}", it.message) }
+    }
+
     install(WebSockets) {
         pingPeriod = 15.seconds
         timeout = 60.seconds

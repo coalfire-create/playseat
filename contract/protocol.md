@@ -1,4 +1,4 @@
-# 플레이시트 통신 계약 v0.3
+# 플레이시트 통신 계약 v0.4
 
 > 차량 앱(이정한) ↔ 허브 서버(이용준) ↔ 동승자 웹(이용준)
 > 저장소로 옮길 위치: `contract/protocol.md`
@@ -22,6 +22,7 @@
 | `landing` | 동작 | — | 동작 |
 | `queueTotalMs` | 동작 | — | 표시 |
 | `turnRemainingMs` (v0.3) | 동작 — 1초마다 갱신 | — | 표시 |
+| `artworkUrl` (v0.4) | 동작 — 앨범 커버 표시 | 검색 결과에 포함 + 목록 곡은 예열 | 전달 |
 | `drive.album` | 동작 | 중계 | 표시 |
 | `search.query` / `search.result` | 해당 없음 | **동작** — 큐레이션 목록 74곡 + Deezer 보완 | 동작 |
 
@@ -79,7 +80,8 @@
     "artist": "...",
     "durationMs": 214000,
     "positionMs": 41000,
-    "requestedBySeat": "R1R"
+    "requestedBySeat": "R1R",
+    "artworkUrl": "https://.../cover_medium.jpg"
   },
   "queue": [
     { "itemId": "q_18", "title": "...", "artist": "...", "durationMs": 198000, "requestedBySeat": "R2L" }
@@ -123,7 +125,7 @@
 | type | payload | 차량의 검증 |
 |---|---|---|
 | `seat.claim` | `{ deviceId, seatId, nickname }` | 해당 좌석이 `occupied` 인가, 이미 다른 기기가 점유했는가 |
-| `queue.add` | `{ seatId, title, artist, externalId? }` | 지금 그 좌석의 차례인가, 좌석 프로필이 허용하는가, 연속 독점 아닌가 |
+| `queue.add` | `{ seatId, title, artist, externalId?, artworkUrl? }` | 지금 그 좌석의 차례인가, 좌석 프로필이 허용하는가, 연속 독점 아닌가 |
 | `queue.remove` | `{ seatId, itemId }` | 본인이 넣은 곡인가 |
 | `vote.skip` | `{ seatId }` | 중복 투표 아닌가, 운전자 거부권 적용 |
 | `reaction.like` | `{ seatId }` | — |
@@ -177,6 +179,10 @@ if (m.type === "turn.notify" && m.seatId === mySeat) showMyTurn();
 
 ## 버전
 
+- `v0.4` — 2026-11-01. `queue.add` 와 `state.sync` 의 트랙에 선택 필드 `artworkUrl` 추가.
+  폰이 검색 결과에서 받은 커버 주소를 그대로 넘기고, 차량은 그것만 그립니다.
+  차량이 다시 검색하지 않습니다. 큐레이션 목록 곡은 허브가 시작 직후 백그라운드로
+  커버를 채워 두며, 못 찾으면 커버 없이 둡니다. 추가분이며 v0.3 클라이언트는 그대로 동작합니다.
 - `v0.3` — 2026-10-31. `state.sync` 에 선택 필드 `turnRemainingMs` 추가.
   차례 제한시간이 실제로 적용됩니다. 추가분이며 v0.2 클라이언트는 그대로 동작합니다.
 - `v0.2` — 2026-10-31. `state.sync` 에 선택 필드 `mode`, `landing`, `queueTotalMs` 추가.

@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.zxing.core)
+    implementation(libs.coil.compose)
 
     // Pleos Connect SDK. 실제 신호 구현은 vehicle/·voice/ 패키지 안에만 들어갑니다.
     implementation(libs.pleos.vehicle)

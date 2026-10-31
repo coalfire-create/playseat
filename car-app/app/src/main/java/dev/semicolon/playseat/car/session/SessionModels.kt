@@ -23,6 +23,13 @@ data class TrackDto(
     val durationMs: Int,
     val requestedBySeat: String,
     val positionMs: Int? = null,
+    /**
+     * 앨범 커버 주소 (v0.4).
+     *
+     * 허브의 검색 결과에 실려 오는 값을 폰이 그대로 넘겨 줍니다.
+     * 큐레이션 목록 곡은 비어 있을 수 있으므로 없을 때를 항상 그려야 합니다.
+     */
+    val artworkUrl: String? = null,
 )
 
 /** 차량이 내려보내는 단일 진실 상태. */
@@ -98,6 +105,7 @@ data class PhoneRequest(
     val durationMs: Int? = null,
     val externalId: String? = null,
     val itemId: String? = null,
+    val artworkUrl: String? = null,
 )
 
 @Serializable

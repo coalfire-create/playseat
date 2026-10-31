@@ -7,6 +7,7 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.delay
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
@@ -57,6 +58,59 @@ object MusicSearch {
 
     private val cache = ConcurrentHashMap<String, Pair<Long, JsonObject>>()
 
+    /**
+     * 큐레이션 목록 곡의 앨범 커버.
+     *
+     * 목록은 네트워크 없이 즉시·정확하게 답하는 것이 존재 이유라서 커버를 들고 있지
+     * 않습니다. 그렇다고 차량 화면에 자리표시자만 늘어놓을 수는 없으니,
+     * 서버가 뜬 뒤 뒤에서 천천히 Deezer 로 커버만 찾아 채워 둡니다.
+     * 검색 응답을 기다리게 하지 않고, 실패하면 그냥 커버가 없는 채로 둡니다.
+     */
+    private val artCache = ConcurrentHashMap<String, String>()
+
+    private fun artKey(title: String, artist: String) =
+        "${title.lowercase().trim()}|${artist.lowercase().trim()}"
+
+    /** 허브 시작 직후 백그라운드에서 한 번 돕니다. */
+    suspend fun warmCatalogArtwork() {
+        var found = 0
+        for (item in Catalog.all(Int.MAX_VALUE)) {
+            val key = artKey(item.title, item.artist)
+            if (artCache.containsKey(key)) continue
+            val hit = runCatching { lookupArtwork(item) }.getOrNull()
+            if (hit != null) { artCache[key] = hit; found++ }
+            // Deezer 는 짧은 시간에 몰아 치면 막습니다. 급할 것 없으니 천천히 돕니다.
+            delay(300)
+        }
+        // 예열 전에 만들어진 응답에는 커버가 없으므로 버립니다.
+        cache.clear()
+        log.info("큐레이션 목록 커버 {}/{}건 확보", found, Catalog.all(Int.MAX_VALUE).size)
+    }
+
+    /**
+     * 한 곡의 커버를 찾습니다.
+     *
+     * 아티스트가 실제로 일치할 때만 받습니다. 제목만 같은 커버곡의 커버를 붙이면
+     * 화면에는 그럴듯하게 보여도 틀린 그림입니다. 못 찾으면 비워 두는 편이 낫습니다.
+     * 한글 표기로 안 되면 영문 표기로 한 번 더 물어봅니다 — Deezer 는 국내 아티스트를
+     * 영문으로 색인합니다.
+     */
+    private suspend fun lookupArtwork(item: Item): String? {
+        // 아티스트 이름이 실제로 같을 때만 받습니다. 관련도로 거르면
+        // "손오공 (SEVENTEEN) KARAOKE" 처럼 제목에 가수 이름이 들어간
+        // 노래방 음원의 커버가 붙습니다. 실제로 그렇게 붙었습니다.
+        fun pick(list: List<Item>) =
+            list.firstOrNull { ArtistAlias.sameArtist(it.artist, item.artist) }?.artworkUrl
+
+        pick(deezerRaw("${item.artist} ${item.title}", 5))?.let { return it }
+
+        val foreign = ArtistAlias.foreignForm(item.artist.lowercase()) ?: return null
+        delay(300)
+        // 아티스트 이름만으로 더 찾아보고 싶어지지만, 그러면 이 곡이 아닌
+        // 다른 앨범의 커버가 붙습니다. 그건 틀린 그림이라 하지 않습니다.
+        return pick(deezerRaw("$foreign ${item.title}", 5))
+    }
+
     @Serializable
     private data class DeezerResponse(val data: List<DeezerTrack> = emptyList())
 
@@ -90,8 +144,11 @@ object MusicSearch {
             cache.remove(key)
         }
 
-        // 1) 큐레이션 목록에서 먼저 찾습니다
-        val local = Catalog.search(needle, n)
+        // 1) 큐레이션 목록에서 먼저 찾습니다. 예열된 커버가 있으면 붙입니다.
+        val local = Catalog.search(needle, n).map {
+            if (it.artworkUrl != null) it
+            else it.copy(artworkUrl = artCache[artKey(it.title, it.artist)])
+        }
 
         // 2) 모자라면 Deezer 로 보완합니다
         val remote = if (local.size >= n) emptyList() else
@@ -129,7 +186,15 @@ object MusicSearch {
         return deezerSearch(foreign, limit)
     }
 
-    private suspend fun deezerSearch(q: String, limit: Int): List<Item> {
+    private suspend fun deezerSearch(q: String, limit: Int): List<Item> =
+        deezerRaw(q, limit)
+            // 검색어와 상관없는 곡으로 자리를 채우지 않습니다.
+            .filter { Relevance.of(it.title, it.artist, q) > 0 }
+            .sortedByDescending { Relevance.of(it.title, it.artist, q) }
+            .distinctBy { it.title.lowercase() to it.artist.lowercase() }
+            .take(limit)
+
+    private suspend fun deezerRaw(q: String, limit: Int): List<Item> {
         // 넉넉히 받아 와서 직접 재정렬한 뒤 잘라냅니다.
         // Deezer 기본 정렬은 한글 아티스트명에 약해, "아이유" 로 검색하면
         // 피처링으로 참여한 다른 가수의 곡이 앞에 옵니다.
@@ -157,11 +222,6 @@ object MusicSearch {
                     artworkUrl = it.album?.coverMedium,
                 )
             }
-            // 검색어와 상관없는 곡으로 자리를 채우지 않습니다.
-            .filter { Relevance.of(it.title, it.artist, q) > 0 }
-            .sortedByDescending { Relevance.of(it.title, it.artist, q) }
-            .distinctBy { it.title.lowercase() to it.artist.lowercase() }
-            .take(limit)
     }
 
     data class Item(
@@ -406,6 +466,20 @@ object ArtistAlias {
 
     /** 같은 뜻으로 볼 표기들. 사전에 없으면 자기 자신만 돌려줍니다. */
     fun expand(needle: String): Set<String> = index[needle] ?: setOf(needle)
+
+    /**
+     * 두 아티스트 표기가 같은 사람을 가리키는지.
+     *
+     * 표기가 달라도 같으면 참입니다("BTS" = "방탄소년단"). 다만 세 글자 이하
+     * 약어는 정확히 같을 때만 봅니다 — "iu" 는 'Liu' 안에도 들어 있습니다.
+     */
+    fun sameArtist(candidate: String, wanted: String): Boolean {
+        val c = candidate.lowercase().filterNot { it.isWhitespace() }
+        return expand(wanted.lowercase()).any { form ->
+            val f = form.filterNot { it.isWhitespace() }
+            if (f.length <= 3) c == f else c.contains(f)
+        }
+    }
 
     /** 해외 서비스에 물어볼 때 쓸 영문 표기. 없으면 null. */
     fun foreignForm(needle: String): String? =

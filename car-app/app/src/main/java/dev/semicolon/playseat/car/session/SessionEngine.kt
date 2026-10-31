@@ -145,6 +145,7 @@ class SessionEngine(
                     artist = req.artist.orEmpty(),
                     durationMs = duration,
                     requestedBySeat = seat.seatId,
+                    artworkUrl = req.artworkUrl,
                 )
                 var next = cur.copy(queue = cur.queue + track)
                 if (next.nowPlaying == null) next = playNext(next)

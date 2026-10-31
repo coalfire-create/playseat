@@ -74,6 +74,15 @@ class MusicSearchTest {
     }
 
     @Test
+    fun `커버를 붙일 때 노래방 음원을 그 가수의 곡으로 보지 않는다`() {
+        // 제목에 가수 이름이 들어간 음원이 많습니다. 아티스트가 같아야만 받습니다.
+        assertTrue(ArtistAlias.sameArtist("SEVENTEEN", "세븐틴"))
+        assertEquals(false, ArtistAlias.sameArtist("ZZang KARAOKE", "세븐틴"))
+        assertEquals(false, ArtistAlias.sameArtist("Liu Yifei", "아이유"))
+        assertTrue(ArtistAlias.sameArtist("IU", "아이유"))
+    }
+
+    @Test
     fun `해외 서비스용 영문 표기를 돌려준다`() {
         assertEquals("seventeen", ArtistAlias.foreignForm("세븐틴"))
         assertEquals("bts", ArtistAlias.foreignForm("방탄소년단"))
