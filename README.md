@@ -68,6 +68,13 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # 최초 1회
 Pleos Connect AVD를 띄운 뒤 Android Studio에서 Run 합니다.
 에뮬레이터에서 호스트 PC는 `10.0.2.2` 로 접근합니다.
 
+## 처음 오셨다면
+
+- 서버·웹 담당: [`docs/ONBOARDING.md`](docs/ONBOARDING.md)
+- 분담과 일정: [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
+- 통신 계약: [`contract/protocol.md`](contract/protocol.md) — 맨 앞의 구현 상태표를 먼저 보세요
+- 작업 규칙: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+
 ## 현재 진행 상태
 
 | 항목 | 상태 |
@@ -79,6 +86,7 @@ Pleos Connect AVD를 띄운 뒤 Android Studio에서 Run 합니다.
 | 차량 앱 화면 | 좌석 배치도·QR·주행 중 축약 화면 동작 |
 | Pleos SDK 연결 | **미완** — `FakeVehicleSignalSource` 로 대체 중 |
 | STT/TTS, NaviHelper, PlaybackGateway | 미착수 |
+| 계약 v0.2 추가분 (`mode`·`landing`·`queueTotalMs`·`drive.album`) | 설계만 합의, 미구현 |
 
 ## 제출용 APK
 

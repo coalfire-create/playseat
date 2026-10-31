@@ -1,8 +1,35 @@
-# 플레이시트 통신 계약 v0.1.1
+# 플레이시트 통신 계약 v0.2
 
 > 차량 앱(이정한) ↔ 허브 서버(이용준) ↔ 동승자 웹(이용준)
 > 저장소로 옮길 위치: `contract/protocol.md`
 > **이 문서가 두 사람의 유일한 접점입니다. 변경은 반드시 양쪽 합의 후 PR.**
+
+## 구현 상태 (2026-10-31)
+
+계약에 적혀 있다고 동작하는 것은 아닙니다. 지금 신뢰할 수 있는 범위입니다.
+
+| 항목 | 차량 앱 | 허브 | 동승자 웹 |
+|---|---|---|---|
+| `state.sync` (seats, turnSeatId, nowPlaying, queue, skipVotes, skipThreshold) | 동작 | 중계 | 표시 |
+| `seat.claim` | 동작 | 중계 | 동작 |
+| `queue.add` / `queue.remove` | 동작 | 중계 | 추가만 |
+| `vote.skip` / `reaction.like` / `turn.pass` | 동작 | 중계 | skip·like |
+| `reject` (+`seatId`) | 동작 | 브로드캐스트 | 표시 |
+| `turn.notify` | 동작 | 브로드캐스트 | 표시 |
+| `search.query` / `search.result` | 해당 없음 | **스텁** (고정 목록) | 동작 |
+| `driveState` 전환에 따른 권한 이동 | 동작 | — | 배너만 |
+| `etaSeconds` / `queueTargetMs` | Fake 값 | — | 미사용 |
+| `mode` (CHARGING_LOUNGE) | **미구현** | — | **미구현** |
+| `landing` | **미구현** | — | **미구현** |
+| `queueTotalMs` | **미구현** | — | **미구현** |
+| `drive.album` | **미구현** | — | **미구현** |
+
+**미구현 항목에 의존하는 코드를 먼저 쓰지 마세요.** v0.2 추가분은 설계를 미리 합의해 둔
+것이고, 차량 앱이 내려보내기 시작하면 이 표를 갱신합니다. 그때까지 폰은 해당 필드가
+`undefined` 인 상태를 정상으로 다뤄야 합니다.
+
+차량 신호도 아직 실제 차량에서 오지 않습니다. `FakeVehicleSignalSource` 가 화면의 디버그
+버튼으로 주입하는 값입니다. Pleos Vehicle SDK 연결은 미완입니다.
 
 ## 원칙
 
@@ -53,7 +80,10 @@
   "etaSeconds": 9600,
   "queueTargetMs": 9600000,
   "skipVotes": ["R2L", "R2R"],
-  "skipThreshold": 3
+  "skipThreshold": 3,
+  "mode": "NORMAL",
+  "landing": false,
+  "queueTotalMs": 1240000
 }
 ```
 
@@ -65,6 +95,12 @@
   착석했지만 폰 미연결인 좌석은 좌석도에 "참여 대기"로 표시.
 - `turnSeatId` 가 `null` 이면 턴 대기 상태(예: 주행 시작 전).
 - `etaSeconds`, `queueTargetMs` 는 내비 목적지가 없으면 `null`.
+- `mode`: `"NORMAL"` | `"CHARGING_LOUNGE"` (v0.2 · **미구현**). 충전 중 정차 상태에서 라운지 모드가 켜지고,
+  **이때는 좌석 턴 규칙이 해제되어 아무 좌석이나 곡을 넣을 수 있습니다.** 차 안에 갇혀 있는
+  충전 대기 시간에는 차례를 기다리게 할 이유가 없기 때문입니다.
+- `landing`: 도착 5분 이내 (v0.2 · **미구현**). 템포를 낮추고 큐 추가를 더 받지 않는 구간입니다.
+- `queueTotalMs` (v0.2 · **미구현**): 현재 큐의 총 재생 길이. `queueTargetMs` 와 비교해 "도착까지 몇 곡 더"를
+  폰에 표시하는 데 씁니다.
 
 ## 폰 → 서버 → 차량 (요청)
 
@@ -83,6 +119,7 @@
 |---|---|
 | `state.sync` | 위 전체 상태 |
 | `turn.notify` | `{ seatId, deadlineMs }` — 해당 좌석 폰에 차례 알림 |
+| `drive.album` | `{ startedAt, endedAt, durationMs, tracks: [{ title, artist, requestedBySeat }], seats: [{ seatId, nickname }] }` — 주행이 끝나면 한 번 전송 (v0.2 · **미구현**) |
 | `reject` | `{ requestType, reason, seatId? }` — `reason`: `NOT_YOUR_TURN` \| `PROFILE_BLOCKED` \| `SEAT_TAKEN` \| `DUPLICATE_VOTE` \| `DRIVING_RESTRICTED` |
 
 ### 수신자 판별 — 허브는 브로드캐스트한다
@@ -124,6 +161,8 @@ if (m.type === "turn.notify" && m.seatId === mySeat) showMyTurn();
 
 ## 버전
 
+- `v0.2` — 2026-10-31. `state.sync` 에 선택 필드 `mode`, `landing`, `queueTotalMs` 추가.
+  차량 → 폰 메시지 `drive.album` 추가. 모두 추가분이며 v0.1 클라이언트는 그대로 동작합니다.
 - `v0.1.1` — 2026-10-31. `reject` 에 선택 필드 `seatId` 추가. 허브가 브로드캐스트하므로
   폰이 자기 것을 골라낼 수단이 필요했습니다. 기존 필드는 그대로이며 하위 호환됩니다.
 - `v0.1` — 2026-10-31 최초 확정.
