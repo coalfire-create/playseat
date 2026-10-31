@@ -15,14 +15,19 @@ import androidx.compose.ui.graphics.Color
  *
  * 야간 주행 비중이 높아 다크 고정이고, 배경은 완전한 검정 대신
  * 위에서 아래로 아주 옅게 떨어지는 그라디언트를 씁니다.
+ *
+ * 면은 테두리로 나누지 않고 밝기 차이로만 나눕니다. 선이 많으면
+ * 흔들리는 차 안에서 시선이 분산되고, 운전 중에 훑어야 하는 화면에서는
+ * "어디를 봐야 하는지" 가 흐려집니다. 테두리를 쓰는 곳은 지금 차례인
+ * 좌석 하나뿐이고, 그래서 그 하나가 멀리서도 바로 보입니다.
  */
 
-internal val Bg = Color(0xFF080A0E)
-internal val BgTop = Color(0xFF101722)
-internal val Surface1 = Color(0xFF131A24)
-internal val Surface2 = Color(0xFF1B2330)
+internal val Bg = Color(0xFF05070A)
+internal val BgTop = Color(0xFF0D141E)
+internal val Surface1 = Color(0xFF111823)
+internal val Surface2 = Color(0xFF18212E)
 internal val Line = Color(0xFF2A3341)
-internal val LineSoft = Color(0xFF1E2531)
+internal val LineSoft = Color(0xFF1C2430)
 
 internal val TextHi = Color(0xFFEDF1F7)
 internal val Dim = Color(0xFF8B95A7)
