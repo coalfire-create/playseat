@@ -71,7 +71,8 @@ Pleos Connect AVD를 띄운 뒤 Android Studio에서 Run 합니다.
 ## 처음 오셨다면
 
 - 서버·웹 담당: [`docs/ONBOARDING.md`](docs/ONBOARDING.md)
-- 분담과 일정: [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
+- **남은 일과 담당: [`docs/REMAINING.md`](docs/REMAINING.md)**
+- 분담 설계 배경: [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
 - 통신 계약: [`contract/protocol.md`](contract/protocol.md) — 맨 앞의 구현 상태표를 먼저 보세요
 - 작업 규칙: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
