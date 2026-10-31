@@ -125,7 +125,7 @@ private suspend fun DefaultWebSocketServerSession.handleHubLocal(type: String, r
     val obj = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return
     val q = obj["q"]?.jsonPrimitive?.contentOrNull.orEmpty()
     val limit = obj["limit"]?.jsonPrimitive?.intOrNull ?: 20
-    send(Frame.Text(SearchStub.query(q, limit).toString()))
+    send(Frame.Text(MusicSearch.query(q, limit).toString()))
 }
 
 private fun typeOf(raw: String): String? = runCatching {

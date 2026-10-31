@@ -22,7 +22,7 @@
 | `landing` | 동작 | — | 동작 |
 | `queueTotalMs` | 동작 | — | 표시 |
 | `drive.album` | 동작 | 중계 | 표시 |
-| `search.query` / `search.result` | 해당 없음 | **스텁** (고정 20곡) | 동작 |
+| `search.query` / `search.result` | 해당 없음 | **동작** — 큐레이션 목록 60곡 + Deezer 보완 | 동작 |
 
 계약 밖의 차량 앱 내부 상태입니다.
 
@@ -148,7 +148,7 @@ if (m.type === "turn.notify" && m.seatId === mySeat) showMyTurn();
 | `search.query` | `{ q, limit }` |
 | `search.result` | `{ items: [{ title, artist, durationMs, externalId, artworkUrl? }] }` |
 
-곡 검색은 서버가 처리한다. 차량 앱은 검색을 모른다. 재생은 `queue.add` 로 들어온
+곡 검색은 서버가 처리한다. 차량 앱은 검색을 모른다. `artworkUrl` 은 있을 때만 포함된다. 재생은 `queue.add` 로 들어온
 `title`/`artist` 를 차량이 `PlaybackGateway`로 해석해 차량 음악 앱에 위임한다.
 
 ## 연결 규약

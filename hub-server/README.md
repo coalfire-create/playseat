@@ -20,8 +20,9 @@ cd hub-server
   `seatId` 를 담고 있으니 폰이 자기 것만 골라 씁니다.
 - 마지막 `state.sync` 원문을 들고 있다가 폰이 새로 붙으면 즉시 돌려줍니다.
   폰이 접속 직후 빈 화면을 보지 않게 하는 용도입니다.
-- `search.query` 는 차량으로 넘기지 않고 허브가 직접 답합니다. 지금은 `SearchStub` 의
-  고정 목록이며, 스트리밍 사업자 메타데이터 검색으로 교체할 자리입니다.
+- `search.query` 는 차량으로 넘기지 않고 허브가 직접 답합니다.
+  큐레이션 목록(`Catalog`, 60곡)에서 먼저 찾고, 모자라면 Deezer 공개 API 로 보완합니다.
+  목록 적중은 약 80ms, 외부 보완은 약 600ms 이며 10분간 캐시합니다.
 
 ## 구조
 
@@ -29,5 +30,5 @@ cd hub-server
 |---|---|
 | `Application.kt` | Ktor 설정, 라우팅, 역할(car/phone) 분기 |
 | `SessionHub.kt` | 세션방 관리, 차량↔폰 중계, 재접속 처리 |
-| `SearchStub.kt` | 곡 검색 임시 구현 (교체 대상) |
+| `MusicSearch.kt` | 곡 검색 — 큐레이션 목록 우선 + Deezer 보완, 10분 캐시 |
 | `Protocol.kt` | 메시지 타입 상수 |
