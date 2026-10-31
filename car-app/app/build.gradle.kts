@@ -61,13 +61,12 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.zxing.core)
 
-    // TODO(Pleos): 저장소·좌표 확인 후 활성화합니다.
-    //   PleosVehicleSignalSource 가 이 의존성만 사용하도록 격리되어 있어,
-    //   없는 상태에서도 FakeVehicleSignalSource 로 전체 앱이 빌드·실행됩니다.
-    // implementation(libs.pleos.vehicle)
-    // implementation(libs.pleos.navihelper)
-    // implementation(libs.pleos.tts)
-    // implementation(libs.pleos.stt)
+    // Pleos Connect SDK. 실제 신호 구현은 vehicle/·voice/ 패키지 안에만 들어갑니다.
+    implementation(libs.pleos.vehicle)
+    implementation(libs.pleos.navihelper)
+    implementation(libs.pleos.tts)
+    implementation(libs.pleos.stt)
+    implementation(libs.pleos.fusedlocation)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

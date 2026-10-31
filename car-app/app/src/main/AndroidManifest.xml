@@ -2,18 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Pleos Connect 차량 퍼미션.
+      Pleos Connect 퍼미션. 이름은 pleos.car.permission.{상수} 형식입니다.
+      맨이름(CAR_SEATS)으로 선언하면 안 됩니다 — 공식 문서 Declaring permission 참조.
       실제 신호 수신은 PleosVehicleSignalSource 에서만 사용하며,
       SDK 미연결 상태에서는 FakeVehicleSignalSource 로 동작합니다.
     -->
-    <uses-permission android:name="CAR_SEATS" />
-    <uses-permission android:name="CAR_DOORS" />
-    <uses-permission android:name="CAR_DRIVE" />
-    <uses-permission android:name="CAR_ENERGY" />
-    <uses-permission android:name="NAVI_ROUTE" />
-    <uses-permission android:name="NAVI_ROUTE_SEARCH" />
-    <uses-permission android:name="TTS_SERVICE" />
-    <uses-permission android:name="STT_SERVICE" />
+    <uses-permission android:name="pleos.car.permission.CAR_SEATS" />
+    <uses-permission android:name="pleos.car.permission.CAR_DOORS" />
+    <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
+    <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
+    <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
+    <uses-permission android:name="pleos.car.permission.NAVI_ROUTE_SEARCH" />
+    <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
+    <uses-permission android:name="pleos.car.permission.STT_SERVICE" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

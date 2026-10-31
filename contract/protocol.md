@@ -28,10 +28,11 @@
 
 | 계층 | 상태 |
 |---|---|
-| 차량 신호 (좌석·도어·기어·충전) | `FakeVehicleSignalSource` — 화면 디버그 버튼으로 주입. **Pleos Vehicle SDK 미연동** |
+| 차량 신호 (좌석·기어) | **Pleos Vehicle SDK 연동 완료** (좌석 착석 + 안전벨트 폴백, 기어). 자동차 단말이 아니면 `FakeVehicleSignalSource` 로 자동 대체 |
+| 차량 신호 (충전) | 미연동 — 충전 상태 전용 API 미확인. 실제 차량에서 라운지 모드는 아직 안 켜짐 |
 | 재생 (`PlaybackGateway`) | `SimulatedPlaybackGateway` — 소리 없이 시간만 흐름. **MediaSession 위임 미구현** |
 | 음성 (`VoiceController`) | Android 표준 TTS·SpeechRecognizer 로 동작. **Pleos TTS/STT SDK 미연동** |
-| 잔여 ETA | Fake 값이 주행 중 1초마다 감소. **NaviHelper 미연동** |
+| 잔여 ETA | Fake 값이 주행 중 1초마다 감소. **NaviHelper 미연동** — 실제 차량에서 랜딩 구간 미발생 |
 
 즉 **계약상의 모든 메시지는 양쪽이 주고받을 수 있고**, 아직 실제 차량·실제 음원에
 연결되지 않았을 뿐입니다. 동승자 웹은 차량 신호가 Fake 인지 실제인지 구분할 필요가 없습니다.
