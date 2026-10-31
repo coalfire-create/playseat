@@ -88,8 +88,11 @@ ETA 는 주행 중 1초마다 실제로 줄어들어, 랜딩 구간과 드라이
 
 ## 남은 작업
 
-- [ ] Pleos Vehicle SDK 연결 (`CAR_SEATS` 수신 검증이 최우선)
-- [ ] NaviHelper 로 실제 ETA·경로 구독
+- [x] Pleos Vehicle SDK 연결 — 좌석 착석(+안전벨트 폴백), 기어, 충전
+- [x] NaviHelper 로 실제 ETA 구독 — `onDrivingInfo` → `destination.duration`
+- [ ] 에뮬레이터에서 `CAR_SEATS` 실제 수신 검증 (**최우선**)
+- [ ] 기어를 AAOS 표준 `GEAR_SELECTION` 으로 교체 (Pleos API 가 비권장.
+      `android.car.jar` 가 platforms/android-35/optional 에 있어 `useLibrary("android.car")` 로 가능)
 - [ ] Pleos TTS/STT 로 교체 (차량 마이크·스티어링 휠 음성 버튼 활용)
 - [ ] `MediaSessionPlaybackGateway` — 차량 음악 앱 위임
 - [ ] 드라이브 앨범 로컬 보관 (현재는 메모리, 앱 재시작 시 사라짐)

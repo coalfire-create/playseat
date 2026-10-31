@@ -3,10 +3,17 @@ package dev.semicolon.playseat.car.vehicle
 import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
+import ai.pleos.playground.navi.constants.NavigationStatus
+import ai.pleos.playground.navi.data.DestinationArrivedInfo
+import ai.pleos.playground.navi.data.DrivingInfo
+import ai.pleos.playground.navi.helper.NaviHelper
+import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import ai.pleos.playground.vehicle.Vehicle
 import ai.pleos.playground.vehicle.api.model.area.SeatArea
 import ai.pleos.playground.vehicle.constant.area.SeatValue
 import ai.pleos.playground.vehicle.constant.control.VehicleGear
+import ai.pleos.playground.vehicle.listener.EvBatteryStateOfChargeListener
+import ai.pleos.playground.vehicle.listener.EvChargePortOpenListener
 import ai.pleos.playground.vehicle.listener.GearSelectionListener
 import ai.pleos.playground.vehicle.listener.SeatBeltBuckledStateListener
 import ai.pleos.playground.vehicle.listener.SeatOccupancyListener
@@ -41,6 +48,10 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
     private val occupancyListeners = mutableMapOf<String, SeatOccupancyListener>()
     private val beltListeners = mutableMapOf<String, SeatBeltBuckledStateListener>()
     private var gearListener: GearSelectionListener? = null
+    private var portListener: EvChargePortOpenListener? = null
+    private var socListener: EvBatteryStateOfChargeListener? = null
+    private var navi: NaviHelper? = null
+    private var naviListener: NaviHelperEventListener? = null
 
     /** 착석 감지를 무엇으로 하고 있는지. 화면에 표시해 심사·디버깅에 쓸 수 있게 둡니다. */
     @Volatile var occupancySource: String = "미확인"
@@ -54,10 +65,8 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
 
         subscribeSeats(v)
         subscribeGear(v)
-        // TODO(충전): 충전 상태 전용 API 를 찾지 못했습니다. EvChargePortOpenListener 를
-        //   대리 신호로 쓸지, EvBatteryStateOfCharge 증가 추세로 판정할지 결정해야 합니다.
-        //   그때까지 charging 은 false 로 두어 라운지 모드가 켜지지 않습니다.
-        // TODO(ETA): NaviHelper SDK 로 목적지·잔여 ETA 를 구독해 etaSeconds 를 채웁니다.
+        subscribeCharging(v)
+        subscribeNavi()
     }
 
     // ---------- 좌석 ----------
@@ -161,6 +170,93 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
         }
     }
 
+    // ---------- 충전 → 라운지 모드 ----------
+
+    /**
+     * 충전 중 판정.
+     *
+     * 충전 여부를 한 번에 알려주는 API 가 없어 충전 스위치 상태를 기준으로 삼습니다.
+     * 충전구 개폐와 배터리 잔량이 바뀔 때마다 스위치 상태를 다시 조회해 최신으로 유지합니다.
+     */
+    private fun subscribeCharging(v: Vehicle) {
+        val ev = v.getEvBattery()
+
+        fun refreshSwitch() = ev.getEvChargeSwitchState({ on ->
+            _snapshot.update { it.copy(charging = on == true) }
+        }, { e -> Log.w(TAG, "충전 스위치 조회 실패: ${e.message}") })
+
+        refreshSwitch()
+        ev.getEvBatteryStateOfCharge({ soc ->
+            _snapshot.update { it.copy(batteryPercent = soc) }
+        }, { })
+
+        val pl = object : EvChargePortOpenListener {
+            override fun onEvChargePortOpenUpdated(open: Boolean?) = refreshSwitch()
+            override fun onFailed(e: Exception) {
+                Log.w(TAG, "충전구 콜백 오류: ${e.message}")
+            }
+        }
+        portListener = pl
+        ev.registerEvChargePortOpen(pl)
+
+        val sl = object : EvBatteryStateOfChargeListener {
+            override fun onEvBatteryStateOfChargeUpdated(soc: Int?) {
+                _snapshot.update { it.copy(batteryPercent = soc) }
+                refreshSwitch()
+            }
+            override fun onFailed(e: Exception) {
+                Log.w(TAG, "배터리 잔량 콜백 오류: ${e.message}")
+            }
+        }
+        socListener = sl
+        ev.registerEvBatteryStateOfCharge(sl)
+    }
+
+    // ---------- 내비 → 잔여 ETA ----------
+
+    /**
+     * 잔여 ETA.
+     *
+     * 경로 안내 중에는 onDrivingInfo 가 반복 호출되고, destination.duration 이
+     * 목적지까지 남은 초입니다. 이 값이 큐 목표 길이와 랜딩 구간 판정에 쓰입니다.
+     * 경로가 없으면 null 로 두어 큐 길이를 맞추지 않습니다.
+     */
+    private fun subscribeNavi() {
+        val n = runCatching { NaviHelper(context) }
+            .onFailure { Log.w(TAG, "NaviHelper 생성 실패: ${it.message}") }
+            .getOrNull() ?: return
+
+        val l = object : NaviHelperEventListener {
+            override fun onDrivingInfo(drivingInfo: DrivingInfo) {
+                val sec = runCatching { drivingInfo.destination.duration }.getOrNull()
+                setEta(sec)
+            }
+
+            override fun onDestinationArrived(destinationArrivedInfo: DestinationArrivedInfo) {
+                setEta(0)
+            }
+
+            override fun onRouteEnded() = setEta(null)
+            override fun onRouteCancelled() = setEta(null)
+
+            override fun onNavigationStatus(navigationStatus: NavigationStatus) {
+                // 경로 안내가 아니면 ETA 가 의미 없습니다
+                if (navigationStatus != NavigationStatus.ROUTE_DRIVE) setEta(null)
+            }
+        }
+
+        n.initialize({
+            n.addListener(l)
+            navi = n
+            naviListener = l
+            Log.i(TAG, "NaviHelper 연결 완료")
+        }, { t ->
+            Log.w(TAG, "NaviHelper 초기화 실패: ${t.message}")
+        })
+    }
+
+    private fun setEta(seconds: Int?) = _snapshot.update { it.copy(etaSeconds = seconds) }
+
     // ---------- 공통 ----------
 
     private fun setOccupied(seatId: String, occupied: Boolean) {
@@ -184,10 +280,20 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
             occupancyListeners.forEach { (id, l) -> areaOf(id)?.let { seat.unregisterSeatOccupancy(it, l) } }
             beltListeners.forEach { (id, l) -> areaOf(id)?.let { seat.unregisterSeatBeltBuckledState(it, l) } }
             gearListener?.let { v.getGear().unregisterGearSelection(it) }
+            portListener?.let { v.getEvBattery().unregisterEvChargePortOpen(it) }
+            socListener?.let { v.getEvBattery().unregisterEvBatteryStateOfCharge(it) }
         }.onFailure { Log.w(TAG, "구독 해제 중 오류: ${it.message}") }
+        runCatching {
+            naviListener?.let { navi?.removeListener(it) }
+            navi?.release()
+        }.onFailure { Log.w(TAG, "NaviHelper 해제 중 오류: ${it.message}") }
         occupancyListeners.clear()
         beltListeners.clear()
         gearListener = null
+        portListener = null
+        socListener = null
+        naviListener = null
+        navi = null
         runCatching { v.release() }
         vehicle = null
     }
