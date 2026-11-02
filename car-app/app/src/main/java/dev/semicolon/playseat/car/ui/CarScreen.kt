@@ -48,6 +48,15 @@ private val SEAT_LABEL = mapOf(
     SeatId.R2R to "2열 우",
 )
 
+/** 좌석 축약 이름. 선곡 순서 띠처럼 가로가 좁은 곳에서 씁니다. */
+private val SEAT_SHORT = mapOf(
+    SeatId.R1L to "운전석",
+    SeatId.R1R to "조수석",
+    SeatId.R2L to "2열좌",
+    SeatId.R2C to "2열중",
+    SeatId.R2R to "2열우",
+)
+
 private fun label(seatId: String) = SEAT_LABEL[seatId] ?: seatId
 
 private fun mmss(ms: Int): String {
@@ -82,16 +91,15 @@ fun CarScreen(
             // 주행 중에는 운전자 화면을 축약하고 조작 권한을 동승자에게 넘깁니다.
             // 이 분기가 플레이시트의 핵심 주장이고, AAOS 주의분산 제한의 전제이기도 합니다.
             Row(Modifier.weight(1f)) {
-                Column(Modifier.weight(0.92f)) {
+                // 위에서 본 차는 세로로 깁니다. 왼쪽 단을 그 폭에 맞춰 좁히면
+                // 차가 단을 꽉 채우고, 남는 가로는 대기열이 가져갑니다.
+                Column(Modifier.weight(0.5f)) {
                     if (state.mode == SessionMode.CHARGING_LOUNGE) { LoungeNotice(); HLine() }
-                    SeatMap(state, onDriverPassTurn, Modifier)
+                    SeatMap(state, onDriverPassTurn, Modifier.weight(1f))
                     HLine()
                     TurnOrderRow(state)
                     HLine()
                     JoinRow(state, joinUrl)
-                    HLine()
-                    // 내용이 끝난 뒤의 여백입니다. 가운데를 비우면 끊긴 것처럼 보입니다.
-                    Spacer(Modifier.weight(1f))
                 }
                 VLine()
                 Column(Modifier.weight(1f)) {
@@ -183,7 +191,7 @@ private fun SeatMap(state: SessionState, onPassTurn: () -> Unit, modifier: Modif
         }
 
         Box(
-            Modifier.fillMaxWidth().height(CAR_VIEW_H),
+            Modifier.fillMaxWidth().weight(1f).padding(vertical = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
             // 실제 차를 위에서 보면 세로로 깁니다. 가로로 늘리면 차로 안 보입니다.
@@ -278,9 +286,14 @@ private fun SeatSpot(
     }
 }
 
-private val CAR_VIEW_H = 700.dp
-/** 가로/세로. 위에서 본 차는 세로로 깁니다. */
-private const val CAR_ASPECT = 0.56f
+/**
+ * 가로/세로. 위에서 본 차는 세로로 깁니다.
+ *
+ * 실제 비율(1:2.4 쯤)을 그대로 쓰면 화면에서 가늘고 길어 좌우가 텅 빕니다.
+ * Pleos 의 차량 렌더도 1:1.8 안팎으로 줄여 그립니다. 조금 더 눌러
+ * 단을 꽉 채우되, 더 넓히면 차가 아니라 상자로 보입니다.
+ */
+private const val CAR_ASPECT = 0.60f
 
 /** 선곡이 좌석을 어떤 순서로 도는지. 운전석이 맨 뒤인 것도 설계입니다. */
 @Composable
@@ -294,15 +307,15 @@ private fun TurnOrderRow(state: SessionState) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("선곡 순서", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = p.text)
-        Spacer(Modifier.width(28.dp))
+        Spacer(Modifier.width(20.dp))
         when {
             order.isEmpty() -> Text("탑승을 기다리고 있습니다", fontSize = 21.sp, color = p.sub)
             lounge -> Text("차례 없음 — 모두 바로 추가", fontSize = 21.sp, color = p.sub)
             else -> order.forEachIndexed { i, id ->
-                if (i > 0) Text("  →  ", fontSize = 19.sp, color = p.line)
+                if (i > 0) Text(" → ", fontSize = 18.sp, color = p.line)
                 val current = state.turnSeatId == id
                 Text(
-                    label(id), fontSize = 21.sp,
+                    SEAT_SHORT[id] ?: id, fontSize = 21.sp,
                     color = if (current) p.accent else p.sub,
                     fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
                 )
