@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -48,15 +49,6 @@ private val SEAT_LABEL = mapOf(
     SeatId.R2R to "2열 우",
 )
 
-/** 좌석 축약 이름. 선곡 순서 띠처럼 가로가 좁은 곳에서 씁니다. */
-private val SEAT_SHORT = mapOf(
-    SeatId.R1L to "운전석",
-    SeatId.R1R to "조수석",
-    SeatId.R2L to "2열좌",
-    SeatId.R2C to "2열중",
-    SeatId.R2R to "2열우",
-)
-
 private fun label(seatId: String) = SEAT_LABEL[seatId] ?: seatId
 
 private fun mmss(ms: Int): String {
@@ -93,11 +85,9 @@ fun CarScreen(
             Row(Modifier.weight(1f)) {
                 // 위에서 본 차는 세로로 깁니다. 왼쪽 단을 그 폭에 맞춰 좁히면
                 // 차가 단을 꽉 채우고, 남는 가로는 대기열이 가져갑니다.
-                Column(Modifier.weight(0.5f)) {
+                Column(Modifier.weight(0.52f)) {
                     if (state.mode == SessionMode.CHARGING_LOUNGE) { LoungeNotice(); HLine() }
                     SeatMap(state, onDriverPassTurn, Modifier.weight(1f))
-                    HLine()
-                    TurnOrderRow(state)
                     HLine()
                     JoinRow(state, joinUrl)
                 }
@@ -173,13 +163,24 @@ private fun LoungeNotice() {
 private fun SeatMap(state: SessionState, onPassTurn: () -> Unit, modifier: Modifier) {
     val p = pal
     val lounge = state.mode == SessionMode.CHARGING_LOUNGE
+    // 선곡이 도는 순서. 좌석 위 번호로 보여 주므로 따로 줄을 두지 않습니다.
+    val order = SeatId.TURN_ORDER.filter { id -> state.seats.any { it.seatId == id && it.occupied } }
 
     Column(modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().height(76.dp).padding(horizontal = 40.dp),
+            Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 40.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("좌석", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = p.text)
+            Spacer(Modifier.width(18.dp))
+            Text(
+                when {
+                    lounge -> "차례 없이 모두 바로 추가"
+                    order.isEmpty() -> "탑승을 기다리고 있습니다"
+                    else -> "번호 순으로 돌아갑니다"
+                },
+                fontSize = 20.sp, color = p.sub, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
             Spacer(Modifier.weight(1f))
             // 운전자는 헤드유닛을 길게 보면 안 되므로 자기 차례를 한 번에 넘깁니다.
             // 엔진도 운전석 차례일 때만 이 요청을 받습니다(SessionEngine.driverPassTurn).
@@ -190,22 +191,20 @@ private fun SeatMap(state: SessionState, onPassTurn: () -> Unit, modifier: Modif
             }
         }
 
-        Box(
-            Modifier.fillMaxWidth().weight(1f).padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            // 실제 차를 위에서 보면 세로로 깁니다. 가로로 늘리면 차로 안 보입니다.
-            BoxWithConstraints(Modifier.fillMaxHeight().aspectRatio(CAR_ASPECT)) {
-                val w = maxWidth
-                val h = maxHeight
+        // 차는 세로·가로 중 먼저 차는 쪽에 맞춰 최대 크기로 키웁니다.
+        // 한쪽만 기준으로 잡으면(fillMaxHeight + aspectRatio) 반대쪽에서 잘립니다.
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f).padding(vertical = 6.dp)) {
+            val w = (maxHeight * CAR_ASPECT).coerceAtMost(maxWidth)
+            val h = w / CAR_ASPECT
+            Box(Modifier.align(Alignment.Center).size(w, h)) {
                 CarTopView(Modifier.matchParentSize(), line = p.line, glass = p.glass)
 
-                SeatSpot(state, SeatId.R1L, w * 0.135f, h * 0.255f, w * 0.29f, h * 0.215f)
-                SeatSpot(state, SeatId.R1R, w * 0.575f, h * 0.255f, w * 0.29f, h * 0.215f)
+                SeatSpot(state, SeatId.R1L, order, w * 0.135f, h * 0.255f, w * 0.29f, h * 0.215f)
+                SeatSpot(state, SeatId.R1R, order, w * 0.575f, h * 0.255f, w * 0.29f, h * 0.215f)
 
-                SeatSpot(state, SeatId.R2L, w * 0.115f, h * 0.555f, w * 0.245f, h * 0.215f)
-                SeatSpot(state, SeatId.R2C, w * 0.3775f, h * 0.555f, w * 0.245f, h * 0.215f)
-                SeatSpot(state, SeatId.R2R, w * 0.64f, h * 0.555f, w * 0.245f, h * 0.215f)
+                SeatSpot(state, SeatId.R2L, order, w * 0.115f, h * 0.555f, w * 0.245f, h * 0.215f)
+                SeatSpot(state, SeatId.R2C, order, w * 0.3775f, h * 0.555f, w * 0.245f, h * 0.215f)
+                SeatSpot(state, SeatId.R2R, order, w * 0.64f, h * 0.555f, w * 0.245f, h * 0.215f)
             }
         }
     }
@@ -216,29 +215,42 @@ private fun SeatMap(state: SessionState, onPassTurn: () -> Unit, modifier: Modif
 private fun SeatSpot(
     state: SessionState,
     seatId: String,
+    order: List<String>,
     x: Dp, y: Dp, w: Dp, h: Dp,
 ) {
     val p = pal
     val seat: SeatDto? = state.seats.firstOrNull { it.seatId == seatId }
     val occupied = seat?.occupied == true
-    val isTurn = state.turnSeatId == seatId && state.mode != SessionMode.CHARGING_LOUNGE
+    val lounge = state.mode == SessionMode.CHARGING_LOUNGE
+    val isTurn = state.turnSeatId == seatId && !lounge
     val nickname = seat?.nickname
+    // 선곡 순서. 라운지에서는 차례가 없으므로 번호도 달지 않습니다.
+    val turnNo = if (lounge) -1 else order.indexOf(seatId)
+
+    // 위는 등받이, 아래는 쿠션. 같은 반지름의 사각형이면 그냥 버튼으로 읽힙니다.
+    val shape = RoundedCornerShape(
+        topStart = 20.dp, topEnd = 20.dp, bottomStart = 10.dp, bottomEnd = 10.dp,
+    )
 
     Column(Modifier.offset(x, y).size(w, h)) {
         // 헤드레스트. 위에서 봐도 좌석으로 읽히게 하는 유일한 단서입니다.
         Box(
-            Modifier.align(Alignment.CenterHorizontally).fillMaxWidth(0.46f).height(10.dp)
-                .clip(RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp))
-                .background(if (isTurn) p.accent else if (occupied) p.sub else p.line)
+            Modifier.align(Alignment.CenterHorizontally).fillMaxWidth(0.44f).height(h * 0.06f)
+                .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp))
+                .background(
+                    if (isTurn) p.accent
+                    else if (occupied) p.sub.copy(alpha = 0.55f)
+                    else p.line
+                )
         )
         Box(
             Modifier.fillMaxSize()
-                .clip(RoundedCornerShape(14.dp))
+                .clip(shape)
                 // 앉아 있는 좌석은 흰 면으로 띄우고, 빈 좌석은 실내 바닥 그대로 둡니다.
                 // 둘 다 회색이면 타고 있는지 아닌지가 구분되지 않습니다.
                 .background(
                     when {
-                        isTurn -> p.accent.copy(alpha = 0.14f)
+                        isTurn -> p.accent.copy(alpha = 0.12f)
                         occupied -> p.cell
                         else -> Color.Transparent
                     }
@@ -246,16 +258,16 @@ private fun SeatSpot(
                 .border(
                     width = if (isTurn) 2.dp else 1.dp,
                     color = if (isTurn) p.accent else p.line,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = shape,
                 ),
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    label(seatId), fontSize = 22.sp, fontWeight = FontWeight.SemiBold,
+                    label(seatId), fontSize = 23.sp, fontWeight = FontWeight.SemiBold,
                     color = if (occupied) p.text else p.sub, maxLines = 1,
                 )
-                Spacer(Modifier.height(5.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(
                     when {
                         !occupied -> "빈 좌석"
@@ -263,10 +275,25 @@ private fun SeatSpot(
                         seatId == SeatId.R1L -> "음성"
                         else -> "대기"
                     },
-                    fontSize = 18.sp,
+                    fontSize = 19.sp,
                     color = if (isTurn) p.accent else p.sub,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
+            }
+            // 몇 번째로 고르는 자리인지. 좌석 위에 바로 붙어 있으면
+            // 따로 '선곡 순서' 줄을 두고 좌석 이름을 다시 쓸 필요가 없습니다.
+            if (turnNo >= 0) {
+                Box(
+                    Modifier.align(Alignment.TopStart).padding(9.dp).size(30.dp)
+                        .background(if (isTurn) p.accent else Color.Transparent, CircleShape)
+                        .border(1.dp, if (isTurn) p.accent else p.line, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "${turnNo + 1}", fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                        color = if (isTurn) Color.White else p.sub,
+                    )
+                }
             }
             // 남은 시간은 좌석 아래를 가로지르는 띠로. 숫자보다 길이가 빨리 읽힙니다.
             val left = state.turnRemainingMs
@@ -290,39 +317,10 @@ private fun SeatSpot(
  * 가로/세로. 위에서 본 차는 세로로 깁니다.
  *
  * 실제 비율(1:2.4 쯤)을 그대로 쓰면 화면에서 가늘고 길어 좌우가 텅 빕니다.
- * Pleos 의 차량 렌더도 1:1.8 안팎으로 줄여 그립니다. 조금 더 눌러
- * 단을 꽉 채우되, 더 넓히면 차가 아니라 상자로 보입니다.
+ * Pleos 의 차량 렌더도 1:1.8 안팎으로 줄여 그립니다. 여기서는 한 단계
+ * 더 눌러 단을 가로·세로 모두 채우되, 더 넓히면 차가 아니라 상자로 보입니다.
  */
-private const val CAR_ASPECT = 0.60f
-
-/** 선곡이 좌석을 어떤 순서로 도는지. 운전석이 맨 뒤인 것도 설계입니다. */
-@Composable
-private fun TurnOrderRow(state: SessionState) {
-    val p = pal
-    val lounge = state.mode == SessionMode.CHARGING_LOUNGE
-    val order = SeatId.TURN_ORDER.filter { id -> state.seats.any { it.seatId == id && it.occupied } }
-
-    Row(
-        Modifier.fillMaxWidth().height(96.dp).padding(horizontal = 40.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("선곡 순서", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = p.text)
-        Spacer(Modifier.width(20.dp))
-        when {
-            order.isEmpty() -> Text("탑승을 기다리고 있습니다", fontSize = 21.sp, color = p.sub)
-            lounge -> Text("차례 없음 — 모두 바로 추가", fontSize = 21.sp, color = p.sub)
-            else -> order.forEachIndexed { i, id ->
-                if (i > 0) Text(" → ", fontSize = 18.sp, color = p.line)
-                val current = state.turnSeatId == id
-                Text(
-                    SEAT_SHORT[id] ?: id, fontSize = 21.sp,
-                    color = if (current) p.accent else p.sub,
-                    fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
-                )
-            }
-        }
-    }
-}
+private const val CAR_ASPECT = 0.63f
 
 /* ---------------- 참여 ---------------- */
 
@@ -336,13 +334,13 @@ private fun JoinRow(state: SessionState, joinUrl: String) {
     val big = waiting > 0
 
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 26.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 22.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (qr != null) {
             // QR 은 어두운 모듈이 밝은 바탕 위에 있어야 읽힙니다. 야간에도 흰 판을 깝니다.
             Box(Modifier.background(Color.White).padding(8.dp)) {
-                Image(qr, "동승자 접속 QR", Modifier.size(if (big) 146.dp else 84.dp))
+                Image(qr, "동승자 접속 QR", Modifier.size(if (big) 126.dp else 80.dp))
             }
             Spacer(Modifier.width(26.dp))
         }

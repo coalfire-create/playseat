@@ -26,6 +26,9 @@ import androidx.compose.ui.unit.dp
  *
  * 윤곽은 세로 위치별 반폭을 찍고 세로 접선으로 이어 만듭니다.
  * 둥근 사각형으로 그리면 휴대폰처럼 보이고, 앞뒤가 어디인지 알 수 없습니다.
+ *
+ * 선 굵기는 두 단입니다. 차체 윤곽만 굵게 두고 유리·미러·콘솔은
+ * 한 단 흐리게 그립니다. 전부 같은 굵기면 도면처럼 납작해 보입니다.
  */
 @Composable
 fun CarTopView(modifier: Modifier, line: Color, glass: Color) {
@@ -34,7 +37,11 @@ fun CarTopView(modifier: Modifier, line: Color, glass: Color) {
         val h = size.height
         if (w <= 0f || h <= 0f) return@Canvas
 
-        val s = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        // 차체 윤곽
+        val s = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        // 실내 요소. 한 단 얇고 흐리게 둬서 윤곽이 먼저 읽히게 합니다.
+        val t = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val faint = line.copy(alpha = 0.55f)
         val cx = w / 2f
 
         // (세로 위치, 반폭) — 앞이 좁고 가운데가 가장 넓습니다.
@@ -79,14 +86,28 @@ fun CarTopView(modifier: Modifier, line: Color, glass: Color) {
             }
             close()
         }
+        // 바퀴. 차체 밑으로 살짝 드러나는 정도만. 윤곽만 있으면 보트로도 읽힙니다.
+        val tireW = 0.028f * w
+        val tireH = 0.085f * h
+        for (ty in listOf(0.150f, 0.740f)) {
+            for (sg in listOf(-1f, 1f)) {
+                drawRoundRect(
+                    line.copy(alpha = 0.32f),
+                    Offset(cx + sg * 0.424f * w - tireW / 2f, ty * h),
+                    Size(tireW, tireH),
+                    CornerRadius(tireW * 0.45f, tireW * 0.45f),
+                )
+            }
+        }
+
         drawPath(body, line, style = s)
 
         // 보닛 끝선
-        drawLine(line, Offset(cx - 0.30f * w, 0.145f * h), Offset(cx + 0.30f * w, 0.145f * h), s.width, StrokeCap.Round)
+        drawLine(faint, Offset(cx - 0.30f * w, 0.145f * h), Offset(cx + 0.30f * w, 0.145f * h), t.width, StrokeCap.Round)
 
         // 앞유리. 위가 좁은 사다리꼴이라 어디가 앞인지 바로 보입니다.
-        drawLine(line, Offset(cx - 0.30f * w, 0.165f * h), Offset(cx - 0.395f * w, 0.245f * h), s.width, StrokeCap.Round)
-        drawLine(line, Offset(cx + 0.30f * w, 0.165f * h), Offset(cx + 0.395f * w, 0.245f * h), s.width, StrokeCap.Round)
+        drawLine(faint, Offset(cx - 0.30f * w, 0.165f * h), Offset(cx - 0.395f * w, 0.245f * h), t.width, StrokeCap.Round)
+        drawLine(faint, Offset(cx + 0.30f * w, 0.165f * h), Offset(cx + 0.395f * w, 0.245f * h), t.width, StrokeCap.Round)
 
         // 실내. 좌석이 놓이는 자리입니다.
         val cabin = Path().apply {
@@ -94,34 +115,38 @@ fun CarTopView(modifier: Modifier, line: Color, glass: Color) {
                 androidx.compose.ui.geometry.RoundRect(
                     left = cx - 0.395f * w, top = 0.245f * h,
                     right = cx + 0.395f * w, bottom = 0.815f * h,
-                    cornerRadius = CornerRadius(22.dp.toPx(), 22.dp.toPx()),
+                    cornerRadius = CornerRadius(26.dp.toPx(), 26.dp.toPx()),
                 )
             )
         }
         drawPath(cabin, glass, style = Fill)
-        drawPath(cabin, line, style = s)
+        drawPath(cabin, faint, style = t)
 
         // 뒷유리
-        drawLine(line, Offset(cx - 0.395f * w, 0.815f * h), Offset(cx - 0.305f * w, 0.885f * h), s.width, StrokeCap.Round)
-        drawLine(line, Offset(cx + 0.395f * w, 0.815f * h), Offset(cx + 0.305f * w, 0.885f * h), s.width, StrokeCap.Round)
-        drawLine(line, Offset(cx - 0.305f * w, 0.885f * h), Offset(cx + 0.305f * w, 0.885f * h), s.width, StrokeCap.Round)
+        drawLine(faint, Offset(cx - 0.395f * w, 0.815f * h), Offset(cx - 0.305f * w, 0.885f * h), t.width, StrokeCap.Round)
+        drawLine(faint, Offset(cx + 0.395f * w, 0.815f * h), Offset(cx + 0.305f * w, 0.885f * h), t.width, StrokeCap.Round)
+        drawLine(faint, Offset(cx - 0.305f * w, 0.885f * h), Offset(cx + 0.305f * w, 0.885f * h), t.width, StrokeCap.Round)
 
-        // 사이드미러
-        val mw = 0.075f * w
-        val my = 0.255f * h
+        // 사이드미러. 차체가 캔버스 폭을 꽉 쓰므로 미러는 바깥으로 내밀 자리가
+        // 없습니다. 차체 선에 절반쯤 걸쳐 그려야 잘리지 않고 붙어 보입니다.
+        val mw = 0.065f * w
+        val my = 0.252f * h
         drawRoundRect(
-            line, Offset(cx - 0.462f * w - mw * 0.75f, my), Size(mw, 0.035f * h),
-            CornerRadius(mw * 0.45f, mw * 0.45f), style = s,
+            faint, Offset(cx - 0.490f * w, my), Size(mw, 0.034f * h),
+            CornerRadius(mw * 0.45f, mw * 0.45f), style = Fill,
         )
         drawRoundRect(
-            line, Offset(cx + 0.462f * w - mw * 0.25f, my), Size(mw, 0.035f * h),
-            CornerRadius(mw * 0.45f, mw * 0.45f), style = s,
+            faint, Offset(cx + 0.425f * w, my), Size(mw, 0.034f * h),
+            CornerRadius(mw * 0.45f, mw * 0.45f), style = Fill,
         )
 
-        // 1열 사이 센터 콘솔
+        // 1열 사이 센터 콘솔.
+        // 테두리만 그리면 좌석 사이에 빈 칸이 하나 더 있는 것처럼 읽힙니다.
+        // 면으로 옅게 채우고 좌석보다 짧게 둡니다.
         drawRoundRect(
-            line, Offset(cx - 0.045f * w, 0.30f * h), Size(0.09f * w, 0.16f * h),
-            CornerRadius(0.02f * w, 0.02f * w), style = s,
+            line.copy(alpha = 0.16f),
+            Offset(cx - 0.040f * w, 0.335f * h), Size(0.080f * w, 0.115f * h),
+            CornerRadius(0.018f * w, 0.018f * w),
         )
     }
 }
