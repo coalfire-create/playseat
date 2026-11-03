@@ -56,6 +56,15 @@ fun Application.hubModule() {
         get("/health") { call.respondText("ok") }
         get("/stats") { call.respondText(SessionHub.stats()) }
 
+        // 무드 추천을 눈으로 확인하는 용도. 차량은 WebSocket 으로 묻습니다.
+        get("/recommend") {
+            val mood = call.request.queryParameters["mood"].orEmpty()
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 5
+            val kids = call.request.queryParameters["kids"] == "true"
+            val items = Recommend.forMood(mood, limit, kids)
+            call.respondText(Recommend.result(mood, items).toString(), ContentType.Application.Json)
+        }
+
         // 동승자 웹앱을 허브가 직접 서빙한다. 차량 화면 QR → 이 주소.
         val webRoot = File("../passenger-web")
         if (webRoot.isDirectory) {
@@ -99,7 +108,7 @@ private suspend fun DefaultWebSocketServerSession.serveCar(room: SessionRoom) {
         for (frame in incoming) {
             val raw = (frame as? Frame.Text)?.readText() ?: continue
             val type = typeOf(raw) ?: continue
-            SessionHub.fromCar(room, type, raw)
+            if (type in CAR_ASKS_HUB) handleCarAsk(type, raw) else SessionHub.fromCar(room, type, raw)
         }
     } finally {
         SessionHub.detachCar(room, this)
@@ -125,6 +134,25 @@ private suspend fun DefaultWebSocketServerSession.servePhone(room: SessionRoom, 
     } finally {
         SessionHub.detachPhone(room, deviceId, this)
     }
+}
+
+/**
+ * 차량이 허브에 직접 묻는 메시지. 폰으로는 뿌리지 않고 물어본 차에만 답합니다.
+ *
+ * 추천 곡 선정을 차가 아니라 허브가 하는 이유는 곡 목록이 허브에 있기 때문입니다.
+ * 차는 "지금 분위기가 무엇인가" 만 판정합니다 — 그건 차만 알 수 있는 일입니다.
+ */
+private suspend fun DefaultWebSocketServerSession.handleCarAsk(type: String, raw: String) {
+    if (type != MsgType.MOOD_QUERY) return
+    val obj = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return
+    val mood = obj["mood"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val limit = obj["limit"]?.jsonPrimitive?.intOrNull ?: 5
+    val kids = obj["kidsAboard"]?.jsonPrimitive?.contentOrNull == "true"
+    val exclude = obj["exclude"]?.jsonArray.orEmpty()
+        .mapNotNull { it.jsonPrimitive.contentOrNull }
+        .toSet()
+    val items = Recommend.forMood(mood, limit, kids, exclude)
+    send(Frame.Text(Recommend.result(mood, items).toString()))
 }
 
 /** 차량을 거치지 않고 허브가 직접 답하는 메시지 (현재는 곡 검색뿐). */

@@ -23,6 +23,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.lerp
+import dev.semicolon.playseat.car.mood.Mood
+import dev.semicolon.playseat.car.session.AutoPick
 import dev.semicolon.playseat.car.session.DriveAlbumMsg
 import dev.semicolon.playseat.car.session.SeatDto
 import dev.semicolon.playseat.car.session.SessionMode
@@ -49,7 +52,8 @@ private val SEAT_LABEL = mapOf(
     SeatId.R2R to "2열 우",
 )
 
-private fun label(seatId: String) = SEAT_LABEL[seatId] ?: seatId
+private fun label(seatId: String) =
+    if (seatId == AutoPick.SEAT) AutoPick.LABEL else SEAT_LABEL[seatId] ?: seatId
 
 private fun mmss(ms: Int): String {
     val s = (ms / 1000).coerceAtLeast(0)
@@ -72,8 +76,16 @@ fun CarScreen(
 ) {
     val p = pal
     val driving = state.driveState == DriveState.DRIVING.name
+    val mood = Mood.byId(state.moodId)
 
-    Column(Modifier.fillMaxSize().background(p.bg)) {
+    // 분위기를 배경에 섞습니다. 아주 옅게 — 이 화면은 글자를 읽는 화면이고,
+    // 색이 진해지면 Pleos 시스템 UI 와 따로 노는 앱이 됩니다. 밤에는 바탕이
+    // 어두워 같은 양으로는 보이지 않으므로 조금 더 섞습니다.
+    val tint = mood?.let {
+        lerp(p.bg, Color(it.argb), if (p === NightPalette) 0.12f else 0.055f)
+    } ?: p.bg
+
+    Column(Modifier.fillMaxSize().background(tint)) {
         Header(state, usingRealSignals, usingRealPlayback)
         HLine()
 
@@ -96,7 +108,13 @@ fun CarScreen(
                     NowPlaying(state, onDriverSkip)
                     HLine()
                     if (lastAlbum != null) { AlbumSection(lastAlbum); HLine() }
-                    QueueList(state, Modifier.weight(1f))
+                    // 추천이 떠 있는 동안에는 대기열이 어차피 비어 있습니다.
+                    // 같은 자리에 두면 "여기가 다음에 틀 곡" 이라는 뜻이 유지됩니다.
+                    if (state.suggestions.isNotEmpty()) {
+                        Box(Modifier.weight(1f)) { SuggestionList(state) }
+                    } else {
+                        QueueList(state, Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -128,10 +146,91 @@ private fun Header(state: SessionState, realSignals: Boolean, realPlayback: Bool
         Text("플레이시트", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = p.text)
         Spacer(Modifier.width(22.dp))
         Text(status, fontSize = 22.sp, color = p.sub)
+        Spacer(Modifier.width(22.dp))
+        MoodChip(state)
         Spacer(Modifier.weight(1f))
         state.etaSeconds?.let {
             Text("도착까지 ", fontSize = 20.sp, color = p.sub)
             Text("${it / 60}분", fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = p.text)
+        }
+    }
+}
+
+/**
+ * 지금 분위기.
+ *
+ * 이름만 띄우면 틀렸을 때 그냥 멍청한 기능입니다. 근거(와이퍼가 움직이고
+ * 있어요)를 같이 보여 주면 사람이 "아 그래서" 하고 넘어가거나 직접 고칩니다.
+ */
+@Composable
+private fun MoodChip(state: SessionState) {
+    val p = pal
+    val mood = Mood.byId(state.moodId) ?: return
+    val c = Color(mood.argb)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(12.dp).clip(CircleShape).background(c))
+        Spacer(Modifier.width(10.dp))
+        Text(mood.label, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = p.text)
+        state.moodReason?.let {
+            Spacer(Modifier.width(10.dp))
+            Text(it, fontSize = 19.sp, color = p.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/**
+ * 아무도 곡을 넣지 않을 때 차가 권하는 목록.
+ *
+ * 묻지 않고 바로 트는 것도, 물어보고 가만히 있는 것도 둘 다 나쁩니다.
+ * 앞의 것은 멋대로이고, 뒤의 것은 아무도 안 눌러서 결국 조용합니다.
+ * 그래서 "담을 건데 싫으면 지금 말해 주세요" 로 둡니다 — 남은 시간이 보이고,
+ * 폰에서 누구든 멈출 수 있습니다.
+ */
+@Composable
+private fun SuggestionList(state: SessionState) {
+    val p = pal
+    val mood = Mood.byId(state.moodId)
+    val left = ((state.suggestAutoAddMs ?: 0) / 1000).coerceAtLeast(0)
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().height(80.dp).padding(horizontal = 40.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            mood?.let {
+                Box(Modifier.size(12.dp).clip(CircleShape).background(Color(it.argb)))
+                Spacer(Modifier.width(12.dp))
+            }
+            Text(
+                mood?.let { "${it.label}에 어울리는 곡" } ?: "추천",
+                fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = p.text,
+            )
+            Spacer(Modifier.weight(1f))
+            Text("${left}초 뒤 담습니다", fontSize = 20.sp, color = p.accent)
+        }
+        HLine()
+        state.suggestions.forEachIndexed { i, t ->
+            if (i > 0) HLine()
+            Row(
+                Modifier.fillMaxWidth().height(92.dp).padding(horizontal = 40.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Artwork(t.artworkUrl, 56.dp, 24.dp)
+                Spacer(Modifier.width(20.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(t.title, fontSize = 23.sp, color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(4.dp))
+                    Text(t.artist, fontSize = 19.sp, color = p.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(mmss(t.durationMs), fontSize = 19.sp, color = p.sub)
+            }
+        }
+        HLine()
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("폰에서 '괜찮아요' 를 누르면 담지 않습니다", fontSize = 19.sp, color = p.sub)
         }
     }
 }
@@ -659,6 +758,9 @@ class DebugActions(
     val onToggleSeat: (String) -> Unit,
     val onToggleCharging: () -> Unit,
     val onSetEta: (Int?) -> Unit,
+    val onCycleWiper: () -> Unit = {},
+    val onToggleLowBeam: () -> Unit = {},
+    val onToggleWinding: () -> Unit = {},
 )
 
 @Composable
@@ -680,6 +782,12 @@ private fun DebugBar(a: DebugActions) {
             TextButton({ a.onSetEta(9600) }) { Text("2시간 40분", fontSize = 19.sp, color = p.text) }
             TextButton({ a.onSetEta(480) }) { Text("8분", fontSize = 19.sp, color = p.text) }
             TextButton({ a.onSetEta(240) }) { Text("4분 (랜딩)", fontSize = 19.sp, color = p.text) }
+            Spacer(Modifier.width(20.dp))
+            Text("분위기", fontSize = 18.sp, color = p.sub)
+            Spacer(Modifier.width(10.dp))
+            TextButton(a.onCycleWiper) { Text("와이퍼", fontSize = 19.sp, color = p.text) }
+            TextButton(a.onToggleLowBeam) { Text("전조등", fontSize = 19.sp, color = p.text) }
+            TextButton(a.onToggleWinding) { Text("굽잇길", fontSize = 19.sp, color = p.text) }
             TextButton({ a.onSetEta(null) }) { Text("목적지 없음", fontSize = 19.sp, color = p.text) }
         }
     }

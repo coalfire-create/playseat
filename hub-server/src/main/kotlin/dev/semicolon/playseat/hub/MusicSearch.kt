@@ -95,6 +95,11 @@ object MusicSearch {
      * 한글 표기로 안 되면 영문 표기로 한 번 더 물어봅니다 — Deezer 는 국내 아티스트를
      * 영문으로 색인합니다.
      */
+    /** 예열해 둔 커버를 붙여 돌려줍니다. 추천 목록도 같은 커버를 씁니다. */
+    fun withArtwork(items: List<Item>): List<Item> = items.map {
+        if (it.artworkUrl != null) it else it.copy(artworkUrl = artCache[artKey(it.title, it.artist)])
+    }
+
     private suspend fun lookupArtwork(item: Item): String? {
         // 아티스트 이름이 실제로 같을 때만 받습니다. 관련도로 거르면
         // "손오공 (SEVENTEEN) KARAOKE" 처럼 제목에 가수 이름이 들어간
@@ -145,10 +150,7 @@ object MusicSearch {
         }
 
         // 1) 큐레이션 목록에서 먼저 찾습니다. 예열된 커버가 있으면 붙입니다.
-        val local = Catalog.search(needle, n).map {
-            if (it.artworkUrl != null) it
-            else it.copy(artworkUrl = artCache[artKey(it.title, it.artist)])
-        }
+        val local = withArtwork(Catalog.search(needle, n))
 
         // 2) 모자라면 Deezer 로 보완합니다
         val remote = if (local.size >= n) emptyList() else
@@ -183,11 +185,19 @@ object MusicSearch {
         val primary = deezerSearch(q, limit)
         if (primary.isNotEmpty()) return primary
         val foreign = ArtistAlias.foreignForm(q.trim().lowercase()) ?: return emptyList()
-        return deezerSearch(foreign, limit)
+        // 영문 표기로 다시 물을 때는 아티스트가 일치하는 곡만 받습니다.
+        //
+        // 국내 그룹의 영문 표기는 흔한 영단어인 경우가 많습니다. "세븐틴" 을
+        // "seventeen" 으로 물으면 Deezer 는 제목이 Seventeen 인 다른 가수의 곡
+        // (Sharon Van Etten·Ladytron·Troye Sivan …)을 잔뜩 올립니다. 제목이
+        // 우연히 같은 것뿐이고, 좌석에서 "세븐틴" 을 친 사람이 원한 곡이 아닙니다.
+        // 한글로 물었을 때는 이런 충돌이 없으므로 재시도 경로에만 겁니다.
+        return deezerSearch(foreign, limit, requireArtist = foreign)
     }
 
-    private suspend fun deezerSearch(q: String, limit: Int): List<Item> =
+    private suspend fun deezerSearch(q: String, limit: Int, requireArtist: String? = null): List<Item> =
         deezerRaw(q, limit)
+            .filter { requireArtist == null || ArtistAlias.sameArtist(it.artist, requireArtist) }
             // 검색어와 상관없는 곡으로 자리를 채우지 않습니다.
             .filter { Relevance.of(it.title, it.artist, q) > 0 }
             .sortedByDescending { Relevance.of(it.title, it.artist, q) }
@@ -354,6 +364,12 @@ object Catalog {
     )
 
     fun all(limit: Int) = catalog.take(limit)
+
+    /** 카탈로그 번호로 곡을 꺼냅니다. 추천 목록이 번호로 쓰여 있습니다. */
+    fun byIds(ids: List<Int>): List<MusicSearch.Item> {
+        val index = catalog.associateBy { it.externalId }
+        return ids.mapNotNull { index["catalog:$it"] }
+    }
 
     /** 관련도 순으로 돌려줍니다. 아티스트가 걸리면 가장 높게 봅니다. */
     fun search(q: String, limit: Int): List<MusicSearch.Item> {

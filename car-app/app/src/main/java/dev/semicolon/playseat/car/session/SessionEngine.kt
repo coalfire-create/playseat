@@ -37,6 +37,23 @@ class SessionEngine(
     // 지금 차례가 시작된 시각. commit 에서 차례가 바뀔 때마다 다시 잡습니다.
     private var turnStartedAt: Long? = null
 
+    // 큐가 빈 채로 흐른 시간을 재기 위한 시각. 곡이 들어오면 지웁니다.
+    private var emptySince: Long? = null
+
+    // 추천을 띄운 시각. 자동 담기 카운트다운의 기준입니다.
+    private var suggestedAt: Long? = null
+
+    // mood.dismiss 로 미뤄 둔 시각. 이 뒤 SUGGEST_SNOOZE_MS 동안 권하지 않습니다.
+    private var snoozedAt: Long? = null
+
+    /**
+     * 추천 곡을 받아 와야 한다고 알립니다. CarViewModel 이 허브에 묻습니다.
+     *
+     * 엔진이 직접 네트워크를 쓰지 않는 이유는, 이 클래스가 안드로이드도 네트워크도
+     * 모르는 순수 로직이어야 테스트에서 전부 돌릴 수 있기 때문입니다.
+     */
+    var onNeedSuggestions: ((moodId: String, kidsAboard: Boolean, exclude: List<String>) -> Unit)? = null
+
     // ---------- 차량 신호 ----------
 
     /** 차량 신호가 바뀔 때마다 호출합니다. 좌석 슬롯 생성·회수와 주행 상태를 반영합니다. */
@@ -98,6 +115,48 @@ class SessionEngine(
 
     // ---------- 폰 요청 ----------
 
+    // ---------- 분위기 ----------
+
+    /** 분위기 판정 결과를 상태에 싣습니다. 값이 그대로면 아무 일도 하지 않습니다. */
+    fun onMood(id: String, label: String, reason: String) {
+        val cur = _state.value
+        if (cur.moodId == id && cur.moodReason == reason) return
+        // 분위기가 바뀌면 이전 분위기로 고른 추천은 버립니다.
+        val keep = cur.moodId == id
+        commit(
+            cur.copy(
+                moodId = id, moodLabel = label, moodReason = reason,
+                suggestions = if (keep) cur.suggestions else emptyList(),
+                suggestAutoAddMs = if (keep) cur.suggestAutoAddMs else null,
+            )
+        )
+        if (!keep) suggestedAt = null
+    }
+
+    /** 허브가 돌려준 추천 곡. 비어 있으면 아무것도 띄우지 않습니다. */
+    fun onSuggestions(items: List<TrackDto>) {
+        if (items.isEmpty()) return
+        val cur = _state.value
+        // 그 사이에 누가 곡을 넣었으면 끼어들지 않습니다.
+        if (cur.queue.isNotEmpty() || cur.nowPlaying != null) return
+        suggestedAt = now()
+        commit(cur.copy(
+            suggestions = items.map { it.copy(requestedBySeat = AutoPick.SEAT) },
+            suggestAutoAddMs = SessionState.SUGGEST_AUTO_ADD_MS,
+        ))
+    }
+
+    /** 추천을 큐에 담습니다. 자동 담기와 `mood.accept` 가 같은 경로를 씁니다. */
+    private fun acceptSuggestions(s: SessionState): SessionState {
+        if (s.suggestions.isEmpty()) return s
+        val queued = s.suggestions.map { it.copy(itemId = "i${itemSeq++}") }
+        suggestedAt = null
+        emptySince = null
+        val withQueue = s.copy(queue = s.queue + queued, suggestions = emptyList(), suggestAutoAddMs = null)
+        // 큐에만 넣고 끝내면 아무 소리도 안 납니다. 비어 있었으니 바로 첫 곡을 겁니다.
+        return if (withQueue.nowPlaying == null) playNext(withQueue) else withQueue
+    }
+
     /** 요청을 적용합니다. 거절하면 RejectMsg 를 돌려주고 상태는 바뀌지 않습니다. */
     fun onRequest(req: PhoneRequest): RejectMsg? {
         val cur = _state.value
@@ -119,6 +178,18 @@ class SessionEngine(
                 })
                 if (next.turnSeatId == null) next = next.copy(turnSeatId = nextTurn(next, from = null))
                 commit(next)
+            }
+
+            ReqType.MOOD_ACCEPT -> {
+                // 차례와 무관합니다. 차가 권한 곡을 "그래 틀어" 하는 것뿐이고,
+                // 한 사람이 선곡권을 더 갖는 것이 아닙니다.
+                commit(acceptSuggestions(cur))
+            }
+
+            ReqType.MOOD_DISMISS -> {
+                snoozedAt = now()
+                suggestedAt = null
+                commit(cur.copy(suggestions = emptyList(), suggestAutoAddMs = null))
             }
 
             ReqType.QUEUE_ADD -> {
@@ -210,6 +281,7 @@ class SessionEngine(
      * 이때마다 차례 안내 음성이 나가는 것도 막습니다.
      */
     fun tick() {
+        tickSuggestions()
         val cur = _state.value
         if (!countdownRuns(cur)) {
             if (cur.turnRemainingMs != null) commit(cur)
@@ -221,6 +293,47 @@ class SessionEngine(
         } else {
             commit(cur)
         }
+    }
+
+    /**
+     * 음악이 없을 때 차가 끼어드는 지점.
+     *
+     * 1) 큐도 재생도 비면 시계를 켭니다.
+     * 2) [SessionState.SUGGEST_AFTER_MS] 가 지나도 그대로면 추천을 부릅니다.
+     * 3) 추천이 떠 있는 동안 카운트다운을 내리고, 0 이 되면 담습니다.
+     *
+     * 아무도 타지 않았거나 아무도 폰을 연결하지 않았으면 끼어들지 않습니다.
+     * 들을 사람이 없는데 음악이 켜지는 것만큼 당황스러운 것도 없습니다.
+     */
+    private fun tickSuggestions() {
+        val cur = _state.value
+        val t = now()
+
+        if (cur.suggestions.isNotEmpty()) {
+            val left = (SessionState.SUGGEST_AUTO_ADD_MS - (t - (suggestedAt ?: t))).toInt()
+            if (left <= 0) commit(acceptSuggestions(cur))
+            else if (left / 1000 != (cur.suggestAutoAddMs ?: -1) / 1000) {
+                commit(cur.copy(suggestAutoAddMs = left))
+            }
+            return
+        }
+
+        val silent = cur.nowPlaying == null && cur.queue.isEmpty()
+        if (!silent) { emptySince = null; return }
+
+        val anyoneAboard = cur.seats.any { it.occupied } && cur.seats.any { it.connected }
+        if (!anyoneAboard) { emptySince = null; return }
+
+        val snoozed = snoozedAt?.let { t - it < SessionState.SUGGEST_SNOOZE_MS } == true
+        if (snoozed) return
+
+        val since = emptySince ?: t.also { emptySince = it }
+        if (t - since < SessionState.SUGGEST_AFTER_MS) return
+
+        emptySince = t   // 응답이 없어도 다시 묻기까지 같은 간격을 둡니다
+        val mood = cur.moodId ?: return
+        val kids = cur.seats.any { it.occupied && it.profile == SeatProfile.CHILD }
+        onNeedSuggestions?.invoke(mood, kids, emptyList())
     }
 
     /**

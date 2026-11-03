@@ -40,6 +40,40 @@ data class SeatSignal(
     val seatedAt: Long? = null,
 )
 
+/**
+ * 와이퍼 단계.
+ *
+ * 차가 비를 아는 방법은 기상청이 아니라 와이퍼입니다. 위치로 날씨 API 를 부르면
+ * 터널 안이나 지하주차장에서도 "맑음" 이라고 답하지만, 와이퍼는 지금 이 차 앞유리에
+ * 비가 오는지를 말합니다. 세기까지 나누는 이유는 안개비와 폭우의 분위기가 다르기
+ * 때문입니다. (Pleos `WiperState` → 이 단계로 옮겨 담습니다)
+ */
+enum class WiperLevel { OFF, INTERMITTENT, LOW, HIGH }
+
+/**
+ * 분위기 판정에 쓰는 환경 신호.
+ *
+ * 전부 Pleos Vehicle SDK 에서 실제로 읽을 수 있는 값입니다. 외기온은
+ * SDK 공개 API 에 없어서 쓰지 않습니다 — 없는 신호를 쓰는 척하면
+ * 실차에서 그 기능만 조용히 죽습니다.
+ */
+data class CabinEnvironment(
+    val wiper: WiperLevel = WiperLevel.OFF,
+    /** 하향등 점등. 어두워졌거나 터널에 들어갔다는 뜻입니다. */
+    val lowBeamOn: Boolean = false,
+    /** 차량 설정의 야간 모드. AAOS uiMode 를 그대로 따릅니다. */
+    val night: Boolean = false,
+    /**
+     * 최근 조향 변동폭(도).
+     *
+     * 굽잇길인지 직선인지를 가릅니다. 산길·해안도로는 조향이 끊임없이 바뀌고
+     * 고속도로는 거의 0 입니다. 지형을 묻는 API 없이 지형을 아는 방법입니다.
+     */
+    val steeringSwingDeg: Float = 0f,
+    /** ECO / COMFORT / SPORT 등. 운전자가 고른 성향. */
+    val drivingMode: String? = null,
+)
+
 /** 차량에서 읽어 오는 신호 묶음. */
 data class VehicleSnapshot(
     val seats: List<SeatSignal>,
@@ -48,6 +82,7 @@ data class VehicleSnapshot(
     val etaSeconds: Int? = null,
     val charging: Boolean = false,
     val batteryPercent: Int? = null,
+    val env: CabinEnvironment = CabinEnvironment(),
 ) {
     fun seat(seatId: String): SeatSignal? = seats.firstOrNull { it.seatId == seatId }
 
@@ -67,4 +102,13 @@ interface VehicleSignalSource {
 
     fun start()
     fun stop()
+
+    /**
+     * 실내 앰비언트 조명을 무드 색으로 바꿉니다.
+     *
+     * 화면 안에서만 분위기가 바뀌면 운전자는 못 봅니다 — 운전자는 화면을
+     * 오래 볼 수 없으니까요. 조명은 안 보고도 느껴집니다. 지원하지 않는
+     * 차에서는 조용히 아무 일도 일어나지 않아야 하므로 기본 구현은 비어 있습니다.
+     */
+    fun applyMoodColor(argb: Int) = Unit
 }

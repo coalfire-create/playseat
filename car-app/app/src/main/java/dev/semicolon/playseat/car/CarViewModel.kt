@@ -3,6 +3,9 @@ package dev.semicolon.playseat.car
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.res.Configuration
+import dev.semicolon.playseat.car.mood.Mood
+import dev.semicolon.playseat.car.mood.MoodEngine
 import dev.semicolon.playseat.car.net.HubClient
 import dev.semicolon.playseat.car.playback.PlaybackGateway
 import dev.semicolon.playseat.car.playback.PlaybackGatewayFactory
@@ -12,6 +15,7 @@ import dev.semicolon.playseat.car.session.SessionEngine
 import dev.semicolon.playseat.car.session.SessionState
 import dev.semicolon.playseat.car.session.TurnNotifyMsg
 import dev.semicolon.playseat.car.vehicle.FakeVehicleSignalSource
+import dev.semicolon.playseat.car.vehicle.PleosVehicleSignalSource
 import dev.semicolon.playseat.car.vehicle.SeatId
 import dev.semicolon.playseat.car.vehicle.VehicleSignalSourceFactory
 import dev.semicolon.playseat.car.voice.VoiceCommands
@@ -42,6 +46,7 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
         sessionId = BuildConfig.SESSION_ID,
         host = BuildConfig.HUB_HOST,
         onRequest = ::handleRequest,
+        onSuggestions = { engine.onSuggestions(it) },
     )
 
     val state: StateFlow<SessionState> = engine.state
@@ -66,6 +71,15 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         vehicle.start()
+
+        // 야간 여부는 차량 설정(AAOS uiMode)이 쥐고 있습니다. 신호원에 넣어 주면
+        // 분위기 판정이 와이퍼·전조등과 같은 자리에서 그 값을 봅니다.
+        pushNightMode()
+
+        // 추천이 필요할 때 허브에 묻습니다. 엔진은 네트워크를 모릅니다.
+        engine.onNeedSuggestions = { moodId, kids, exclude ->
+            hub.askMood(moodId, kids, exclude)
+        }
 
         engine.onDriveAlbum = { album ->
             _lastAlbum.value = album
@@ -107,6 +121,26 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
+        // 차량 신호 + 세션 상태 → 분위기. 1초마다 다시 봅니다.
+        // 와이퍼가 꺼진 순간 바로 곡 분위기가 바뀌어야 하는데, 이벤트로만 묶으면
+        // 둘 중 하나만 바뀌었을 때를 놓칩니다.
+        viewModelScope.launch {
+            while (isActive) {
+                delay(1000)
+                val reading = MoodEngine.read(vehicle.snapshot.value, engine.state.value)
+                engine.onMood(reading.id, reading.label, reading.reason)
+            }
+        }
+
+        // 분위기가 바뀌면 실내 조명도 따라갑니다.
+        // 운전자는 화면을 오래 볼 수 없으니, 바뀐 것을 조명으로 알립니다.
+        viewModelScope.launch {
+            engine.state.map { it.moodId }.distinctUntilChanged().collect { id ->
+                val mood = Mood.byId(id) ?: return@collect
+                vehicle.applyMoodColor(mood.argb)
+            }
+        }
+
         // 랜딩 구간 진입 안내
         viewModelScope.launch {
             engine.state.map { it.landing }.distinctUntilChanged().collect { landing ->
@@ -134,6 +168,14 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         hub.connect()
+    }
+
+    /** 주간·야간 전환. MainActivity 의 설정 변경에서도 다시 불러 줍니다. */
+    fun pushNightMode() {
+        val night = (getApplication<Application>().resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        (vehicle as? PleosVehicleSignalSource)?.setNight(night)
+        fake?.setNight(night)
     }
 
     /** 폰 요청을 엔진에 넘기고, 거절되면 그 폰에 이유를 돌려줍니다. */

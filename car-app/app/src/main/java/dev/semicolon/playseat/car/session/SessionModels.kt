@@ -61,8 +61,50 @@ data class SessionState(
      * 돌릴 좌석이 하나뿐이거나, 아직 아무도 폰을 연결하지 않은 경우입니다.
      */
     val turnRemainingMs: Int? = null,
+
+    /**
+     * 지금 차 안의 분위기 (v0.5).
+     *
+     * 차량 신호(와이퍼·전조등·조향·충전·도착)로 판정한 값입니다.
+     * [moodReason] 은 사람에게 보여 줄 근거 문장입니다 — 판정이 틀렸을 때
+     * 왜 그렇게 봤는지가 보여야 사람이 고쳐 줍니다.
+     */
+    val moodId: String? = null,
+    val moodLabel: String? = null,
+    val moodReason: String? = null,
+
+    /**
+     * 아무도 곡을 넣지 않을 때 차가 권하는 곡 (v0.5).
+     *
+     * [suggestAutoAddMs] 가 0 이 되면 이 곡들이 큐에 들어갑니다. 아무나
+     * `mood.accept` 로 지금 담거나 `mood.dismiss` 로 이번에는 그만둘 수 있습니다.
+     */
+    val suggestions: List<TrackDto> = emptyList(),
+    val suggestAutoAddMs: Int? = null,
 ) {
-    companion object { const val TURN_DEADLINE_MS = 30_000 }
+    companion object {
+        const val TURN_DEADLINE_MS = 30_000
+
+        /**
+         * 큐가 빈 채로 이만큼 지나면 추천을 띄웁니다.
+         *
+         * 곡이 끝나자마자 권하면 아직 고르는 중인 사람의 선택을 가로챕니다.
+         * 짧게 기다렸다가, 그래도 아무도 넣지 않으면 그때 끼어듭니다.
+         */
+        const val SUGGEST_AFTER_MS = 12_000
+
+        /** 추천을 띄운 뒤 자동으로 담기까지. 담기 전에 누구나 멈출 수 있습니다. */
+        const val SUGGEST_AUTO_ADD_MS = 20_000
+
+        /** `mood.dismiss` 뒤 다시 권하지 않는 시간. */
+        const val SUGGEST_SNOOZE_MS = 10 * 60_000L
+    }
+}
+
+/** 차가 스스로 담은 곡의 "선곡한 좌석". 좌석 이름 자리에 이것이 옵니다. */
+object AutoPick {
+    const val SEAT = "AUTO"
+    const val LABEL = "분위기 추천"
 }
 
 object SessionMode {
@@ -132,6 +174,10 @@ object ReqType {
     const val VOTE_SKIP = "vote.skip"
     const val REACTION_LIKE = "reaction.like"
     const val TURN_PASS = "turn.pass"
+
+    /** 추천을 지금 담기 / 이번에는 그만두기 (v0.5). 차례와 무관합니다. */
+    const val MOOD_ACCEPT = "mood.accept"
+    const val MOOD_DISMISS = "mood.dismiss"
 }
 
 object RejectReason {

@@ -40,6 +40,24 @@
   .badge.drive{border-color:#5a4a1e;color:var(--turn);background:#241d10}
   .badge.off{border-color:#5a2a32;color:var(--danger);background:#241216}
 
+  /* ---------- 분위기 (v0.5) ----------
+     차가 판정한 분위기를 폰에도 그립니다. 색은 차량 화면·실내 조명과 같은 값이라
+     세 곳이 동시에 바뀝니다. 한 곳만 바뀌면 고장난 것처럼 보입니다. */
+  .moodbar{display:flex;align-items:center;gap:10px;margin-bottom:12px;
+           padding:11px 14px;border-radius:999px;
+           border:1px solid var(--line);background:var(--card)}
+  .moodbar .mdot{width:10px;height:10px;border-radius:50%;flex:none}
+  .moodbar b{font-size:14px;font-weight:700}
+  .moodbar span{font-size:13px;color:var(--dim);overflow:hidden;
+                text-overflow:ellipsis;white-space:nowrap}
+
+  .sugg{border-color:var(--line2)}
+  .sugg .shead{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .sugg .shead b{font-size:15px;font-weight:800;letter-spacing:-.01em}
+  .sugg .shead .cd{margin-left:auto;font-size:13px;font-weight:700;color:var(--turn)}
+  .sugg .why{font-size:13px;color:var(--dim);margin:-4px 0 12px}
+  .sugg .acts{display:flex;gap:8px;margin-top:12px}
+
   /* ---------- 공통 카드 ---------- */
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
         padding:16px;margin-bottom:12px}
@@ -204,8 +222,10 @@
   <!-- 메인 -->
   <main id="main" style="display:none">
 
+    <div id="moodSlot"></div>
     <div id="turnSlot"></div>
     <div id="stripSlot"></div>
+    <div id="suggSlot"></div>
 
     <div class="card">
       <div class="label">지금 재생</div>
@@ -258,6 +278,17 @@
    2. 낙관적 업데이트 금지. 요청을 보내고 다음 state.sync 를 기다립니다.
       차량이 거절할 수 있으므로 먼저 반영하면 되돌려야 합니다.
    ============================================================ */
+
+/**
+ * 무드 색. 차량 앱 Mood.kt 와 같은 값입니다.
+ *
+ * 한곳에서 내려받지 않고 양쪽에 같은 표를 두는 이유는, 색이 없다고 화면이
+ * 멈추면 안 되기 때문입니다. 모르는 무드가 오면 회색으로 그립니다.
+ */
+const MOOD_COLOR = {
+  RAIN:"#4C6E8F", NIGHT:"#3B4B7A", SUNNY:"#E0A33C",
+  WINDING:"#2F8F6B", LOUNGE:"#7A5CA8", ARRIVING:"#BF6B4A", CALM:"#6E7B86",
+};
 
 const SEAT = {
   R1L:{ name:"운전석", row:1, driver:true },
@@ -442,6 +473,25 @@ function render() {
       left ? ` · <span class="left">${left}</span>` : ""}</div>`;
   } else ts.replaceChildren();
 
+  // 분위기
+  const ms = $("moodSlot");
+  if (state.moodLabel) {
+    const c = MOOD_COLOR[state.moodId] || "#6E7B86";
+    ms.innerHTML = `<div class="moodbar"><i class="mdot"></i><b></b><span></span></div>`;
+    ms.querySelector(".mdot").style.background = c;
+    ms.querySelector("b").textContent = state.moodLabel;
+    ms.querySelector("span").textContent = state.moodReason || "";
+    // 바탕에도 아주 옅게 깔아 둡니다. 글자를 읽는 화면이라 진하면 방해가 됩니다.
+    document.body.style.background =
+      `linear-gradient(180deg, ${c}1f, var(--bg) 320px), var(--bg)`;
+  } else {
+    ms.replaceChildren();
+    document.body.style.background = "";
+  }
+
+  // 분위기 추천
+  renderSuggestions();
+
   // 상태 띠
   const st = $("stripSlot"); st.replaceChildren();
   if (lounge) st.innerHTML += `<div class="strip lounge"><div class="ic">⚡</div><div>
@@ -490,6 +540,57 @@ function render() {
   // 검색 결과의 추가 버튼 상태를 차례에 맞춰 갱신
   for (const b of $("results").querySelectorAll("button")) b.disabled = !canAdd;
   $("foot").textContent = `${label(mySeat)} · ${nickname || deviceId}`;
+}
+
+/**
+ * 차가 권하는 곡.
+ *
+ * 아무도 안 누르면 카운트다운이 끝나는 대로 차가 담습니다. 그래서 '담기' 보다
+ * '괜찮아요' 가 더 중요한 버튼입니다 — 멈추지 않으면 그냥 들어가니까요.
+ * 두 버튼 모두 자기 차례가 아니어도 누를 수 있습니다. 차가 권한 것을
+ * 받아들이는 것뿐이고, 선곡권이 한 사람에게 쏠리는 것이 아닙니다.
+ */
+function renderSuggestions() {
+  const slot = $("suggSlot");
+  const list = (state && state.suggestions) || [];
+  if (!list.length) { slot.replaceChildren(); return; }
+
+  const c = MOOD_COLOR[state.moodId] || "#6E7B86";
+  const sec = Math.max(0, Math.ceil((state.suggestAutoAddMs || 0) / 1000));
+
+  const card = document.createElement("div");
+  card.className = "card sugg";
+  card.innerHTML = `
+    <div class="shead"><i class="mdot" style="width:10px;height:10px;border-radius:50%"></i>
+      <b></b><span class="cd"></span></div>
+    <div class="why"></div>
+    <ul id="suggList"></ul>
+    <div class="acts">
+      <button class="wide sm primary" id="bTakeNow">지금 담기</button>
+      <button class="wide sm" id="bNoThanks">괜찮아요</button>
+    </div>`;
+  card.querySelector(".mdot").style.background = c;
+  card.querySelector("b").textContent =
+    (state.moodLabel ? state.moodLabel + "에 어울리는 곡" : "추천 곡");
+  card.querySelector(".cd").textContent = `${sec}초 뒤 담김`;
+  card.querySelector(".why").textContent =
+    "아무도 곡을 넣지 않아서 차가 골랐습니다. 담지 않으려면 '괜찮아요'.";
+
+  const ul = card.querySelector("#suggList");
+  list.forEach((t) => {
+    const li = document.createElement("li");
+    li.append(artEl(t.artworkUrl, null, t.title));
+    const m = document.createElement("div"); m.className = "meta";
+    m.innerHTML = `<div class="ti"></div><div class="ar"></div>`;
+    m.querySelector(".ti").textContent = t.title;
+    m.querySelector(".ar").textContent = `${t.artist} · ${mmss(t.durationMs)}`;
+    li.append(m);
+    ul.append(li);
+  });
+
+  slot.replaceChildren(card);
+  $("bTakeNow").onclick = () => { send({ type:"mood.accept", seatId:mySeat }); toast("담았습니다"); };
+  $("bNoThanks").onclick = () => { send({ type:"mood.dismiss", seatId:mySeat }); toast("이번에는 넘어갑니다"); };
 }
 
 function renderResults(msg) {

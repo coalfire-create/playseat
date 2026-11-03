@@ -10,13 +10,21 @@ import ai.pleos.playground.navi.helper.NaviHelper
 import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import ai.pleos.playground.vehicle.Vehicle
 import ai.pleos.playground.vehicle.api.model.area.SeatArea
+import ai.pleos.playground.vehicle.api.model.area.WindowArea
 import ai.pleos.playground.vehicle.constant.area.SeatValue
+import ai.pleos.playground.vehicle.constant.area.WindowValue
+import ai.pleos.playground.vehicle.constant.control.LightState
 import ai.pleos.playground.vehicle.constant.control.VehicleGear
+import ai.pleos.playground.vehicle.constant.control.WiperState
+import ai.pleos.playground.vehicle.constant.control.WiperSwitch
 import ai.pleos.playground.vehicle.listener.EvBatteryStateOfChargeListener
 import ai.pleos.playground.vehicle.listener.EvChargePortOpenListener
 import ai.pleos.playground.vehicle.listener.GearSelectionListener
 import ai.pleos.playground.vehicle.listener.SeatBeltBuckledStateListener
+import ai.pleos.playground.vehicle.listener.LightStateListener
 import ai.pleos.playground.vehicle.listener.SeatOccupancyListener
+import ai.pleos.playground.vehicle.listener.SteeringWheelAngleListener
+import ai.pleos.playground.vehicle.listener.WiperStateListener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -63,6 +71,14 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
     private var navi: NaviHelper? = null
     private var naviListener: NaviHelperEventListener? = null
 
+    private var wiperListener: WiperStateListener? = null
+    private var lowBeamListener: LightStateListener? = null
+    private var steeringListener: SteeringWheelAngleListener? = null
+    private val swing = SteeringSwing()
+
+    /** 앰비언트 색을 받아 주는 좌석. capability 가 알려준 것만 건드립니다. */
+    private var ambientAreas: List<SeatArea> = emptyList()
+
     /** 착석 감지를 무엇으로 하고 있는지. 화면에 표시해 심사·디버깅에 쓸 수 있게 둡니다. */
     @Volatile var occupancySource: String = "미확인"
         private set
@@ -77,6 +93,105 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
         subscribeGear(v)
         subscribeCharging(v)
         subscribeNavi()
+        subscribeEnvironment(v)
+    }
+
+    // ---------- 분위기 신호 ----------
+
+    /**
+     * 와이퍼·하향등·조향.
+     *
+     * 세 신호 모두 차만 알 수 있는 것이고, 어느 하나가 없는 차여도 나머지로
+     * 분위기 판정이 돌아야 합니다. 그래서 각각 따로 구독하고 실패를 삼킵니다.
+     */
+    private fun subscribeEnvironment(v: Vehicle) {
+        val front = WindowArea(WindowValue.FRONT_WINDSHIELD)
+        val wiper = v.getWiper()
+
+        fun refreshWiper() {
+            // 단계(세기)는 스위치에, 작동 여부는 상태에 있습니다. 둘을 합쳐야
+            // "안개비" 와 "폭우" 가 갈립니다. AUTO 는 비가 오는지를 말해 주지
+            // 않으므로 상태(ON/OFF)로 판단합니다.
+            wiper.getCurrentWiperSwitch(front, { sw ->
+                if (sw == WiperSwitch.AUTO) {
+                    wiper.getCurrentWiperState(front, { st ->
+                        setWiper(if (st == WiperState.ON) WiperLevel.LOW else WiperLevel.OFF)
+                    }, {})
+                } else {
+                    setWiper(levelOf(sw))
+                }
+            }, { e -> Log.w(TAG, "와이퍼 스위치 조회 실패: ${e.message}") })
+        }
+
+        refreshWiper()
+        val wl = object : WiperStateListener {
+            override fun onWiperStateUpdated(state: WiperState?) = refreshWiper()
+            override fun onFailed(e: Exception) {
+                Log.w(TAG, "와이퍼 콜백 오류: ${e.message}")
+            }
+        }
+        wiperListener = wl
+        runCatching { wiper.registerWiperState(front, wl) }
+            .onFailure { Log.w(TAG, "와이퍼 구독 실패: ${it.message}") }
+
+        val light = v.getLight()
+        fun setLowBeam(st: LightState?) = _snapshot.update {
+            it.copy(env = it.env.copy(lowBeamOn = st == LightState.ON))
+        }
+        light.getCurrentLowBeamLightState({ st -> setLowBeam(st) }, { e ->
+            Log.w(TAG, "하향등 조회 실패: ${e.message}")
+        })
+        val ll = object : LightStateListener {
+            override fun onLightStateUpdated(state: LightState?) = setLowBeam(state)
+            override fun onFailed(e: Exception) {
+                Log.w(TAG, "하향등 콜백 오류: ${e.message}")
+            }
+        }
+        lowBeamListener = ll
+        runCatching { light.registerLowBeamLightState(ll) }
+            .onFailure { Log.w(TAG, "하향등 구독 실패: ${it.message}") }
+
+        // 앰비언트 색을 받아 주는 좌석을 미리 확인해 둡니다.
+        runCatching {
+            light.checkAmbientLightBrightnessColorCapabilities({ _, areas ->
+                ambientAreas = areas
+                Log.i(TAG, "앰비언트 색 지원 좌석 ${areas.size}곳")
+            }, { e -> Log.w(TAG, "앰비언트 capability 조회 실패: ${e.message}") })
+        }
+
+        val wheel = v.getSteeringWheel()
+        val sl = object : SteeringWheelAngleListener {
+            override fun onSteeringWheelAngleUpdated(angle: Float?) {
+                val deg = angle ?: return
+                val spread = swing.add(deg, System.currentTimeMillis())
+                _snapshot.update { it.copy(env = it.env.copy(steeringSwingDeg = spread)) }
+            }
+            override fun onFailed(e: Exception) {
+                Log.w(TAG, "조향각 콜백 오류: ${e.message}")
+            }
+        }
+        steeringListener = sl
+        runCatching { wheel.registerSteeringWheelAngle(sl) }
+            .onFailure { Log.w(TAG, "조향각 구독 실패: ${it.message}") }
+    }
+
+    private fun setWiper(level: WiperLevel) =
+        _snapshot.update { it.copy(env = it.env.copy(wiper = level)) }
+
+    /** 차량 설정의 야간 모드. AAOS uiMode 를 따르므로 바깥에서 넣어 줍니다. */
+    fun setNight(night: Boolean) =
+        _snapshot.update { it.copy(env = it.env.copy(night = night)) }
+
+    override fun applyMoodColor(argb: Int) {
+        val light = vehicle?.getLight() ?: return
+        if (ambientAreas.isEmpty()) return
+        ambientAreas.forEach { area ->
+            runCatching {
+                light.setAmbientLightBrightnessColor(area, argb, { _, _ -> }, { e ->
+                    Log.w(TAG, "앰비언트 색 설정 실패: ${e.message}")
+                })
+            }
+        }
     }
 
     // ---------- 좌석 ----------
@@ -320,6 +435,22 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
         /** SDK 가 준 착석 Boolean 을 "사람이 앉아 있다" 로 해석합니다. */
         internal fun readOccupancy(raw: Boolean?): Boolean =
             if (raw == null) false else raw != OCCUPANCY_BOOLEAN_IS_INVERTED
+
+        /**
+         * 와이퍼 스위치 → 우리 단계.
+         *
+         * SDK 는 간헐 5단·연속 5단까지 나누지만 곡을 고르는 데 그만큼 필요하지
+         * 않습니다. "오는가 / 꽤 오는가" 정도면 충분합니다.
+         */
+        internal fun levelOf(sw: WiperSwitch?): WiperLevel {
+            val name = sw?.name ?: return WiperLevel.OFF
+            return when {
+                name.startsWith("CONTINUOUS_LEVEL_4") || name.startsWith("CONTINUOUS_LEVEL_5") -> WiperLevel.HIGH
+                name.startsWith("CONTINUOUS") -> WiperLevel.LOW
+                name.startsWith("INTERMITTENT") || name == "MIST" -> WiperLevel.INTERMITTENT
+                else -> WiperLevel.OFF
+            }
+        }
 
         /** 좌석 ID ↔ Pleos SeatValue 매핑. 3열은 현재 쓰지 않습니다. */
         private val SEAT_MAP = mapOf(

@@ -1,4 +1,4 @@
-# 플레이시트 통신 계약 v0.4
+# 플레이시트 통신 계약 v0.5
 
 > 차량 앱(이정한) ↔ 허브 서버(이용준) ↔ 동승자 웹(이용준)
 > 저장소로 옮길 위치: `contract/protocol.md`
@@ -23,6 +23,8 @@
 | `queueTotalMs` | 동작 | — | 표시 |
 | `turnRemainingMs` (v0.3) | 동작 — 1초마다 갱신 | — | 표시 |
 | `artworkUrl` (v0.4) | 동작 — 앨범 커버 표시 | 검색 결과에 포함 + 목록 곡은 예열 | 전달 |
+| `mood*` (v0.5) | 동작 — 와이퍼·전조등·조향·충전·도착으로 판정 | — | 표시 |
+| `suggestions` (v0.5) | 동작 — 큐가 비면 자동 담기 | `mood.query` 에 응답 | 표시 + 담기/거절 |
 | `drive.album` | 동작 | 중계 | 표시 |
 | `search.query` / `search.result` | 해당 없음 | **동작** — 큐레이션 목록 74곡 + Deezer 보완 | 동작 |
 
@@ -93,7 +95,16 @@
   "mode": "NORMAL",
   "landing": false,
   "queueTotalMs": 1240000,
-  "turnRemainingMs": 18000
+  "turnRemainingMs": 18000,
+  "moodId": "RAIN",
+  "moodLabel": "비 오는 날",
+  "moodReason": "와이퍼가 움직이고 있어요",
+  "suggestions": [
+    { "itemId": "catalog:10", "title": "비 오는 날", "artist": "검정치마",
+      "durationMs": 254000, "requestedBySeat": "AUTO",
+      "artworkUrl": "https://.../cover_medium.jpg" }
+  ],
+  "suggestAutoAddMs": 14000
 }
 ```
 
@@ -119,6 +130,23 @@
   차량은 랜딩 진입 시 음성 안내를 한 번 하고, 폰은 배너를 띄웁니다.
 - `queueTotalMs` (v0.2): 현재 큐의 총 재생 길이. `queueTargetMs` 와 비교해 "도착까지 몇 곡 더"를
   폰에 표시하는 데 씁니다.
+- `moodId` / `moodLabel` / `moodReason` (v0.5): 지금 차 안의 분위기.
+  `RAIN` `NIGHT` `SUNNY` `WINDING` `LOUNGE` `ARRIVING` `CALM` 일곱 가지이며,
+  모르는 값이 오면 폰은 회색 점으로 그립니다(화면이 멈추면 안 됩니다).
+  **`moodReason` 은 반드시 같이 그립니다.** 이름만 띄우면 판정이 틀렸을 때
+  그냥 멍청한 기능이지만, 근거("와이퍼가 움직이고 있어요")가 보이면 사람이
+  납득하거나 직접 고칩니다.
+  판정 근거는 전부 차량 신호입니다 — 와이퍼 작동·단계, 하향등 점등,
+  최근 12초 조향 변동폭, 충전 상태, 도착까지 남은 시간, 차량 설정의 야간 모드.
+  날씨 API 를 쓰지 않습니다. 터널이나 지하주차장에서 "맑음" 이라고 답하는
+  좌표 기반 날씨보다, 지금 이 앞유리에 비가 오는지를 아는 와이퍼가 정확합니다.
+- `suggestions` / `suggestAutoAddMs` (v0.5): 아무도 곡을 넣지 않을 때 차가 권하는 곡.
+  **카운트다운이 0 이 되면 차가 그대로 큐에 담고 재생을 시작합니다.**
+  그래서 폰에서는 '담기' 보다 '괜찮아요'(`mood.dismiss`)가 더 중요한 버튼입니다.
+  차가 끼어들지 않는 경우 — 재생 중이거나 큐에 곡이 있을 때, 아무도 폰을
+  연결하지 않았을 때, 방금 누가 `mood.dismiss` 를 눌렀을 때(10분).
+  담긴 곡의 `requestedBySeat` 는 좌석이 아니라 `"AUTO"` 이고, 화면에는
+  "분위기 추천" 으로 표시합니다. 누가 골랐는지를 속이지 않기 위해서입니다.
 
 ## 폰 → 서버 → 차량 (요청)
 
@@ -130,6 +158,12 @@
 | `vote.skip` | `{ seatId }` | 중복 투표 아닌가, 운전자 거부권 적용 |
 | `reaction.like` | `{ seatId }` | — |
 | `turn.pass` | `{ seatId }` | 지금 그 좌석의 차례인가 |
+| `mood.accept` (v0.5) | `{ seatId }` | — (차례 무관) |
+| `mood.dismiss` (v0.5) | `{ seatId }` | — (차례 무관) |
+
+`mood.accept` / `mood.dismiss` 는 **차례를 확인하지 않습니다.** 차가 권한 곡을
+받아들이거나 물리는 것일 뿐, 한 사람이 선곡권을 더 갖는 것이 아니기 때문입니다.
+차례를 요구하면 정작 차례가 아닌 사람은 멋대로 들어가는 곡을 막을 수 없습니다.
 
 ## 차량 → 서버 → 폰 (응답·통지)
 
@@ -158,6 +192,15 @@ if (m.type === "turn.notify" && m.seatId === mySeat) showMyTurn();
 |---|---|
 | `search.query` | `{ q, limit }` |
 | `search.result` | `{ items: [{ title, artist, durationMs, externalId, artworkUrl? }] }` |
+| `mood.query` (v0.5) | `{ mood, limit, kidsAboard, exclude: [] }` — **차량이 보냅니다** |
+| `mood.result` (v0.5) | `{ mood, items: [{ title, artist, durationMs, externalId, artworkUrl? }] }` |
+
+`mood.query` 는 폰이 아니라 **차량이** 허브에 묻는 유일한 메시지이고, 답은 물어본
+차에만 돌아간다(폰으로 뿌리지 않는다). 분위기 판정은 차가, 곡 선정은 허브가 한다 —
+곡 목록이 허브에 있고, 지금 비가 오는지는 차만 알기 때문이다.
+`exclude` 에는 방금 들은 곡을 `"제목|가수"` 소문자 형태로 넣어 같은 곡이 다시
+권해지는 것을 막는다. 추천은 큐레이션 목록 안에서만 고른다 — 아무도 누르지
+않으면 자동으로 들어가는 곡이므로, 사람이 확인한 곡이어야 한다.
 
 곡 검색은 서버가 처리한다. 차량 앱은 검색을 모른다. `artworkUrl` 은 있을 때만 포함된다. 재생은 `queue.add` 로 들어온
 `title`/`artist` 를 차량이 `PlaybackGateway`로 해석해 차량 음악 앱에 위임한다.
@@ -179,6 +222,11 @@ if (m.type === "turn.notify" && m.seatId === mySeat) showMyTurn();
 
 ## 버전
 
+- `v0.5` — 2026-11-03. 분위기(`moodId`/`moodLabel`/`moodReason`)와 자동 추천
+  (`suggestions`/`suggestAutoAddMs`)을 `state.sync` 에 추가. 폰 → 차량에
+  `mood.accept`/`mood.dismiss`, 차량 → 허브에 `mood.query`/`mood.result` 추가.
+  전부 추가분이며 v0.4 클라이언트는 그대로 동작합니다(추천이 보이지 않을 뿐
+  자동 담기는 그대로 일어납니다 — 거절할 방법이 없으므로 폰을 같이 올려야 합니다).
 - `v0.4` — 2026-11-01. `queue.add` 와 `state.sync` 의 트랙에 선택 필드 `artworkUrl` 추가.
   폰이 검색 결과에서 받은 커버 주소를 그대로 넘기고, 차량은 그것만 그립니다.
   차량이 다시 검색하지 않습니다. 큐레이션 목록 곡은 허브가 시작 직후 백그라운드로

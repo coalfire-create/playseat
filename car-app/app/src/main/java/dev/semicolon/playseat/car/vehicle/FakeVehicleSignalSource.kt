@@ -46,6 +46,29 @@ class FakeVehicleSignalSource : VehicleSignalSource {
 
     fun setEta(seconds: Int?) = _snapshot.update { it.copy(etaSeconds = seconds) }
 
+    // ---------- 분위기 신호 (데모용) ----------
+
+    /** 와이퍼 단계를 한 칸씩 돌립니다. 비 → 분위기 전환을 화면에서 바로 확인합니다. */
+    fun cycleWiper() = _snapshot.update { s ->
+        val next = when (s.env.wiper) {
+            WiperLevel.OFF -> WiperLevel.INTERMITTENT
+            WiperLevel.INTERMITTENT -> WiperLevel.LOW
+            WiperLevel.LOW -> WiperLevel.HIGH
+            WiperLevel.HIGH -> WiperLevel.OFF
+        }
+        s.copy(env = s.env.copy(wiper = next))
+    }
+
+    fun toggleLowBeam() = _snapshot.update { it.copy(env = it.env.copy(lowBeamOn = !it.env.lowBeamOn)) }
+
+    /** 굽잇길 켜고 끄기. 실제로는 조향각 변동으로 계산되는 값입니다. */
+    fun toggleWinding() = _snapshot.update {
+        val on = it.env.steeringSwingDeg > 0f
+        it.copy(env = it.env.copy(steeringSwingDeg = if (on) 0f else 90f))
+    }
+
+    fun setNight(night: Boolean) = _snapshot.update { it.copy(env = it.env.copy(night = night)) }
+
     /**
      * 1초마다 호출합니다. 주행 중일 때만 잔여 ETA 를 줄입니다.
      *

@@ -2,6 +2,7 @@ package dev.semicolon.playseat.hub
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -140,5 +141,27 @@ class MusicSearchTest {
     fun `곡 식별자는 겹치지 않는다`() {
         val all = Catalog.all(1000)
         assertEquals(all.size, all.map { it.externalId }.toSet().size)
+    }
+
+    // ---------- 동명 제목 회귀 (v0.5) ----------
+
+    @Test
+    fun `영문 별칭이 흔한 영단어여도 제목만 같은 곡은 아티스트가 다르다`() {
+        // "세븐틴" → "seventeen" 으로 다시 물으면 Deezer 는 제목이 Seventeen 인
+        // 다른 가수의 곡을 올립니다. 아티스트 비교가 그 곡들을 걸러내야 합니다.
+        assertTrue(ArtistAlias.sameArtist("SEVENTEEN", "seventeen"))
+        assertFalse(ArtistAlias.sameArtist("Sharon Van Etten", "seventeen"))
+        assertFalse(ArtistAlias.sameArtist("Troye Sivan", "seventeen"))
+        assertFalse(ArtistAlias.sameArtist("Ladytron", "seventeen"))
+    }
+
+    @Test
+    fun `카탈로그 번호로 곡을 꺼낼 수 있다`() {
+        val got = Catalog.byIds(listOf(50, 1))
+        assertEquals(2, got.size)
+        assertEquals("손오공", got[0].title)
+        assertEquals("밤편지", got[1].title)
+        // 없는 번호는 조용히 건너뜁니다.
+        assertEquals(1, Catalog.byIds(listOf(1, 99999)).size)
     }
 }
