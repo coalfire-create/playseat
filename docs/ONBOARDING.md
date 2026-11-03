@@ -50,7 +50,7 @@ node demo/mock-car.mjs
 |---|---|
 | `hub-server` WebSocket 중계 | 동작. 통합 테스트 v0.1 9/9 · v0.2 8/8 |
 | `demo/mock-car.mjs` | 동작. 턴·좌석 권한·스킵 과반 판정까지 |
-| `passenger-web` | 동작하는 **뼈대**. 디자인 없음 |
+| `passenger-web` | 동작. 차량 화면과 같은 디자인 언어(Pleos 팔레트·헤어라인·주야간) |
 | `car-app` 세션 엔진·화면·Pleos SDK 연동 | 동작. 단위 테스트 31/31 |
 
 **이 코드들은 설계 초안이고 소유권은 당신에게 있습니다.** 고치거나 다시 써도 됩니다.

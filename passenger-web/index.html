@@ -3,264 +3,278 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<meta name="theme-color" content="#0b0e13">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151515" media="(prefers-color-scheme: dark)">
 <title>플레이시트</title>
 <style>
+/* ============================================================
+   동승자 웹앱 — 차량 화면과 같은 디자인 언어
+
+   값은 추측이 아니라 차량 앱 Theme.kt(Pleos Connect v2.1.0 캡처에서
+   뽑은 팔레트)와 같은 색입니다. 폰과 헤드유닛이 다른 언어를 쓰면
+   "차 기능"이 아니라 "차에 띄운 웹페이지"로 보입니다.
+
+   따라가는 규칙 (CarScreen.kt 와 동일)
+     - 둥근 카드를 띄우지 않고 1px 헤어라인으로 나눈 평면 구역을 붙입니다
+     - 구역마다 [작은 제목 → 내용] 순으로 왼쪽 정렬합니다
+     - 색은 거의 쓰지 않습니다. 파랑은 '지금 활성' 인 값 하나에만 씁니다
+     - 주요 버튼은 눌린 세그먼트처럼 반전시킵니다(주간 검정, 야간 흰색)
+     - 앨범 커버는 그라데이션을 깔지 않고 평면 타일 + 선 아이콘입니다
+   ============================================================ */
   :root{
-    --bg:#0b0e13; --bg2:#11151d; --card:#161b24; --card2:#1c222d;
-    --line:#242c3a; --line2:#2f3a4c;
-    --fg:#eef2f8; --dim:#8a95a8; --dim2:#5e6878;
-    --accent:#4ea8ff;
-    --turn:#ffb84e; --ok:#49d17f; --danger:#ff6b81;
-    --r:14px;
+    --bg:#ffffff; --cell:#ffffff; --cell2:#f0f0f0; --glass:#f7f7f7;
+    --line:#d6d6d6; --fg:#000000; --sub:#7c7c7c; --accent:#1262f5;
+    --inv:#000000; --oninv:#ffffff;
+    --accent-soft:rgba(18,98,245,.10);
   }
+  /* 차량이 차량 설정의 주간·야간을 따르듯, 폰은 폰의 설정을 따릅니다. */
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#151515; --cell:#151515; --cell2:#222222; --glass:#1c1c1c;
+      --line:#333333; --fg:#dddddd; --sub:#8e8e8e; --accent:#1262f5;
+      --inv:#ffffff; --oninv:#111111;
+      --accent-soft:rgba(18,98,245,.15);
+    }
+  }
+
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  /* display 를 가진 요소에는 hidden 속성이 먹지 않습니다. */
+  [hidden]{display:none!important}
   html,body{margin:0;padding:0}
   body{
     background:var(--bg); color:var(--fg); min-height:100vh;
     font:15px/1.5 -apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo",
          "Malgun Gothic",system-ui,sans-serif;
-    padding:
-      calc(env(safe-area-inset-top) + 14px) 16px
-      calc(env(safe-area-inset-bottom) + 100px);
+    padding-bottom:calc(env(safe-area-inset-bottom) + 72px);
     -webkit-font-smoothing:antialiased;
   }
   .wrap{max-width:460px;margin:0 auto}
+  .hr{height:1px;background:var(--line)}
+  .sec{padding:16px 20px}
+  .lbl{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600;
+       letter-spacing:-.01em;margin-bottom:14px}
+  .lbl .n{color:var(--sub);font-weight:400}
+  .lbl .r{margin-left:auto;font-size:12.5px;color:var(--sub);font-weight:400}
 
-  /* ---------- 헤더 ---------- */
-  header{display:flex;align-items:center;gap:10px;margin-bottom:16px}
-  .logo{font-size:18px;font-weight:800;letter-spacing:-.02em}
-  .logo i{font-style:normal;color:var(--accent)}
-  .spacer{flex:1}
-  .badge{
-    font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;
-    border:1px solid var(--line2);color:var(--dim);white-space:nowrap
-  }
-  .badge.live{border-color:#2a5a3c;color:var(--ok);background:#0f2016}
-  .badge.drive{border-color:#5a4a1e;color:var(--turn);background:#241d10}
-  .badge.off{border-color:#5a2a32;color:var(--danger);background:#241216}
+  /* ---------- 머리말 ---------- */
+  header{display:flex;align-items:center;gap:12px;height:56px;padding:0 20px;
+         position:sticky;top:0;z-index:20;background:inherit}
+  header .brand{font-size:18px;font-weight:700;letter-spacing:-.02em}
+  header .st{margin-left:auto;font-size:13px;color:var(--sub);
+             white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-  /* ---------- 분위기 (v0.5) ----------
-     차가 판정한 분위기를 폰에도 그립니다. 색은 차량 화면·실내 조명과 같은 값이라
-     세 곳이 동시에 바뀝니다. 한 곳만 바뀌면 고장난 것처럼 보입니다. */
-  .moodbar{display:flex;align-items:center;gap:10px;margin-bottom:12px;
-           padding:11px 14px;border-radius:999px;
-           border:1px solid var(--line);background:var(--card)}
-  .moodbar .mdot{width:10px;height:10px;border-radius:50%;flex:none}
-  .moodbar b{font-size:14px;font-weight:700}
-  .moodbar span{font-size:13px;color:var(--dim);overflow:hidden;
-                text-overflow:ellipsis;white-space:nowrap}
+  /* ---------- 분위기 ----------
+     이름만 띄우면 틀렸을 때 그냥 멍청한 기능입니다. 근거를 같이 보여 주면
+     사람이 "아 그래서" 하고 넘어가거나 직접 고칩니다. 차량 MoodChip 과 같은 구성. */
+  .mood{display:flex;align-items:center;gap:9px;padding:13px 20px}
+  .mood .dot{width:10px;height:10px;border-radius:50%;flex:none}
+  .mood b{font-size:14.5px;font-weight:600}
+  .mood span{font-size:13px;color:var(--sub);min-width:0;
+             overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-  .sugg{border-color:var(--line2)}
-  .sugg .shead{display:flex;align-items:center;gap:8px;margin-bottom:12px}
-  .sugg .shead b{font-size:15px;font-weight:800;letter-spacing:-.01em}
-  .sugg .shead .cd{margin-left:auto;font-size:13px;font-weight:700;color:var(--turn)}
-  .sugg .why{font-size:13px;color:var(--dim);margin:-4px 0 12px}
-  .sugg .acts{display:flex;gap:8px;margin-top:12px}
+  /* ---------- 차례 ---------- */
+  .turn{position:relative;padding:14px 20px;font-size:14px}
+  .turn b{font-weight:600}
+  .turn.mine{background:var(--accent-soft)}
+  .turn.mine b{color:var(--accent)}
+  .turn .sub{display:block;margin-top:3px;font-size:12.5px;color:var(--sub)}
+  /* 남은 시간은 띠로. 차량 좌석 아래 띠와 같은 장치입니다 — 숫자보다 길이가 빨리 읽힙니다. */
+  .turn .gauge{position:absolute;left:0;bottom:0;height:3px;background:var(--accent);
+               transition:width .9s linear}
 
-  /* ---------- 공통 카드 ---------- */
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
-        padding:16px;margin-bottom:12px}
-  .label{font-size:11px;font-weight:700;color:var(--dim2);letter-spacing:.08em;
-         text-transform:uppercase;margin-bottom:10px}
+  /* ---------- 알림 띠 ----------
+     차량 LoungeNotice 와 같은 모양. 색 면이 아니라 한 단 밝은 면으로 구분합니다. */
+  .note{background:var(--cell2);padding:15px 20px}
+  .note b{display:block;font-size:14px;font-weight:600;margin-bottom:4px}
+  .note span{font-size:12.5px;color:var(--sub)}
+  .note.on b{color:var(--accent)}
 
-  /* ---------- 좌석 선택 (최초 진입) ---------- */
-  #gate{display:none}
-  #gate.on{display:block}
-  .gate-h{font-size:22px;font-weight:800;line-height:1.35;margin:4px 0 6px;letter-spacing:-.02em}
-  .gate-p{color:var(--dim);font-size:14px;margin-bottom:20px}
+  /* ---------- 좌석 ---------- */
+  .carbox{position:relative;width:100%;max-width:330px;margin:0 auto;aspect-ratio:.63}
+  .carbox svg.body{position:absolute;inset:0;width:100%;height:100%}
+  .seat{position:absolute;display:flex;flex-direction:column;border:0;padding:0;
+        background:none;font:inherit;color:inherit;cursor:default}
+  .seat .head{align-self:center;width:44%;height:7%;background:var(--line);
+              border-radius:4px 4px 0 0}
+  .seat .face{flex:1;display:flex;flex-direction:column;align-items:center;
+              justify-content:center;gap:4px;border:1px solid var(--line);
+              border-radius:12px 12px 6px 6px;background:transparent;position:relative}
+  .seat .nm{font-size:13px;font-weight:600;color:var(--sub);letter-spacing:-.01em}
+  .seat .st{font-size:11px;color:var(--sub);max-width:92%;
+            overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* 앉아 있는 좌석은 흰 면으로 띄우고 빈 좌석은 실내 바닥 그대로 둡니다.
+     둘 다 같은 면이면 타고 있는지 아닌지가 구분되지 않습니다. */
+  .seat.on .face{background:var(--cell)}
+  .seat.on .head{background:var(--sub);opacity:.55}
+  .seat.on .nm{color:var(--fg)}
+  .seat.turn .face{background:var(--accent-soft);border:2px solid var(--accent)}
+  .seat.turn .head{background:var(--accent);opacity:1}
+  .seat.turn .st{color:var(--accent)}
+  .seat.me .face{border-color:var(--accent)}
+  .seat.pick{cursor:pointer}
+  .seat.pick:active .face{background:var(--cell2)}
+  /* 몇 번째로 고르는 자리인지. 좌석에 바로 붙어 있으면 따로 순서 줄을 둘 필요가 없습니다. */
+  .seat .no{position:absolute;left:6px;top:6px;width:19px;height:19px;border-radius:50%;
+            border:1px solid var(--line);display:flex;align-items:center;justify-content:center;
+            font-size:11px;font-weight:600;color:var(--sub);background:transparent}
+  .seat.turn .no{background:var(--accent);border-color:var(--accent);color:#fff}
 
-  /* 차 내부처럼 보이는 좌석 배치 */
-  .cabin{background:var(--bg2);border:1px solid var(--line);border-radius:18px;
-         padding:14px 14px 16px;position:relative;overflow:hidden}
-  .cabin::before{
-    content:"";position:absolute;inset:0 0 auto;height:26px;
-    background:linear-gradient(180deg,rgba(78,168,255,.10),transparent);
-  }
-  .cabin-row{display:flex;gap:9px;margin-bottom:9px}
-  .cabin-row:last-child{margin-bottom:0}
-  .cabin-tag{font-size:10px;color:var(--dim2);font-weight:700;margin:2px 0 7px;letter-spacing:.06em}
-
-  .seat{
-    flex:1;min-width:0;border:1px solid var(--line2);border-radius:11px;
-    background:#0f131b;padding:11px 8px;text-align:center;cursor:pointer;
-    transition:transform .12s ease, border-color .12s ease, background .12s ease;
-  }
-  .seat:active{transform:scale(.97)}
-  .seat .nm{font-size:12.5px;font-weight:700;display:block;margin-bottom:3px}
-  .seat .st{font-size:10.5px;color:var(--dim2);display:block;line-height:1.3}
-  .seat.free{border-style:dashed}
-  .seat.empty{opacity:.3;cursor:not-allowed;border-style:solid}
-  .seat.mine{border-color:var(--accent);background:#10202f;box-shadow:0 0 0 1px var(--accent) inset}
-  .seat.mine .nm{color:var(--accent)}
-  .seat.turn{border-color:var(--turn);background:#241d10}
-  .seat.turn .nm{color:var(--turn)}
-  .seat .wheel{font-size:9px;color:var(--dim2);display:block;margin-top:2px}
-
-  /* ---------- 내 차례 ---------- */
-  .turnbar{
-    border-radius:var(--r);padding:14px 16px;margin-bottom:12px;
-    border:1px solid #5a4a1e;background:linear-gradient(135deg,#2b2211,#231c10);
-    display:flex;align-items:center;gap:12px
-  }
-  .turnbar .dot{width:9px;height:9px;border-radius:50%;background:var(--turn);
-                box-shadow:0 0 0 4px rgba(255,184,78,.16);flex:none;
-                animation:pulse 1.6s ease-in-out infinite}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-  .turnbar b{color:var(--turn);font-size:15px;font-weight:800;display:block}
-  .turnbar small{color:#b79a62;font-size:12px}
-  .waitbar{border:1px solid var(--line);background:var(--card);color:var(--dim);
-           border-radius:var(--r);padding:12px 16px;margin-bottom:12px;font-size:13px}
-  .waitbar b{color:var(--fg);font-weight:700}
-  /* 남은 시간. 차례가 제한시간을 넘기면 자동으로 다음 좌석으로 넘어갑니다. */
-  .left{color:var(--turn);font-weight:700;font-variant-numeric:tabular-nums}
-  .turnbar .left{font-size:13px}
-
-  /* ---------- 상태 띠 ---------- */
-  .strip{border-radius:var(--r);padding:12px 14px;margin-bottom:12px;font-size:13px;
-         display:flex;gap:10px;align-items:flex-start}
-  .strip .ic{font-size:15px;line-height:1.2;flex:none}
-  .strip b{display:block;font-weight:700;margin-bottom:2px}
-  .strip span{color:var(--dim);font-size:12px;display:block}
-  .strip.lounge{border:1px solid #2a5a3c;background:#0f2016}
-  .strip.lounge b{color:var(--ok)}
-  .strip.landing{border:1px solid #5a4a1e;background:#241d10}
-  .strip.landing b{color:var(--turn)}
-  .strip.driving{border:1px solid #2b3a52;background:#101722}
-  .strip.driving b{color:var(--accent)}
+  /* 메인 화면의 축약 좌석. 차 그림을 다시 그리면 화면을 다 먹습니다. */
+  .cabin{background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:10px}
+  .cabin .r{display:flex;gap:8px}
+  .cabin .r+.r{margin-top:8px}
+  .cabin .seat{position:static;flex:1;min-width:0;height:70px}
 
   /* ---------- 지금 재생 ---------- */
-  .np{display:flex;gap:13px;align-items:center}
-  .art{width:60px;height:60px;border-radius:9px;flex:none;object-fit:cover;
-       background:var(--card2);border:1px solid var(--line)}
-  .art.ph{display:flex;align-items:center;justify-content:center;color:#fff;
-          font-weight:800;letter-spacing:-.02em;text-shadow:0 1px 2px rgba(0,0,0,.35)}
-  .np .art.ph{font-size:24px}
-  li .art.ph{font-size:17px}
-  .np-t{min-width:0;flex:1}
-  .np-t .ti{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;
-            text-overflow:ellipsis;letter-spacing:-.01em}
-  .np-t .ar{font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .np-t .by{font-size:11px;color:var(--dim2);margin-top:3px}
-  .bar{height:3px;background:#222a37;border-radius:3px;margin-top:12px;overflow:hidden}
-  .bar i{display:block;height:100%;background:var(--accent);border-radius:3px;
-         transition:width .9s linear}
-  .acts{display:flex;gap:8px;margin-top:13px}
+  .np{display:flex;align-items:center;gap:14px}
+  .art{width:64px;height:64px;flex:none;background:var(--cell2);object-fit:cover;
+       display:flex;align-items:center;justify-content:center;color:var(--sub)}
+  .np .meta{min-width:0;flex:1}
+  .np .ti{font-size:23px;font-weight:700;letter-spacing:-.02em;line-height:1.25;
+          max-height:2.5em;overflow:hidden}
+  .np .ar{font-size:13.5px;color:var(--sub);margin-top:4px;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .np .by{font-size:12px;color:var(--sub);margin-top:3px}
+  .np .idle{font-size:17px;color:var(--sub)}
+  .iconbtn{width:44px;height:44px;flex:none;border:0;background:none;color:var(--fg);
+           display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .iconbtn:active{opacity:.5}
+  .bar{height:3px;background:var(--line);margin-top:18px}
+  .bar i{display:block;height:100%;background:var(--accent);transition:width .9s linear}
+  .times{display:flex;margin-top:10px;font-size:12.5px;color:var(--sub)}
+  .times span:last-child{margin-left:auto}
 
   /* ---------- 버튼 ---------- */
-  button{font:inherit;color:var(--fg);background:var(--card2);border:1px solid var(--line2);
-         border-radius:11px;padding:11px 14px;cursor:pointer;font-weight:600;
-         transition:transform .1s ease,opacity .1s ease}
-  button:active{transform:scale(.97)}
-  button:disabled{opacity:.35;cursor:not-allowed}
-  button.wide{flex:1}
-  button.primary{background:var(--accent);border-color:var(--accent);color:#06121f;font-weight:800}
-  button.ghost{background:transparent}
-  button.sm{padding:8px 13px;font-size:13px;border-radius:9px}
+  button{font:inherit;color:var(--fg);background:transparent;border:1px solid var(--line);
+         border-radius:10px;padding:12px 14px;font-weight:600;cursor:pointer}
+  button:active{background:var(--cell2)}
+  button:disabled{color:var(--sub);opacity:.5;cursor:not-allowed}
+  /* 차례가 아닐 때의 '추가'. 반전면을 그대로 흐리면 회색 덩어리가 돼서
+     줄마다 눈에 먼저 들어옵니다. 테두리만 남깁니다. */
+  button.primary:disabled{background:transparent;border-color:var(--line);
+                          color:var(--sub);opacity:1}
+  button.primary{background:var(--inv);border-color:var(--inv);color:var(--oninv)}
+  button.primary:active{opacity:.75;background:var(--inv)}
+  button.sm{padding:9px 13px;font-size:13.5px}
+  .acts{display:flex;gap:9px;margin-top:16px}
+  .acts button{flex:1}
 
-  /* ---------- 검색 ---------- */
-  .srow{display:flex;gap:8px}
-  input{flex:1;min-width:0;font:inherit;color:var(--fg);background:#0f131b;
-         border:1px solid var(--line2);border-radius:11px;padding:12px 13px}
-  input::placeholder{color:var(--dim2)}
+  /* ---------- 입력 ---------- */
+  .srow{display:flex;gap:9px}
+  input{flex:1;min-width:0;font:inherit;color:var(--fg);background:var(--cell);
+        border:1px solid var(--line);border-radius:10px;padding:12px 13px}
+  input::placeholder{color:var(--sub)}
   input:focus{outline:none;border-color:var(--accent)}
 
   /* ---------- 목록 ---------- */
-  ul{list-style:none;margin:0;padding:0}
-  li{display:flex;gap:11px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
-  li:last-child{border-bottom:0}
-  li .art{width:42px;height:42px;border-radius:7px}
+  ul{list-style:none;margin:0 -20px;padding:0}
+  li{display:flex;gap:12px;align-items:center;padding:11px 20px;border-top:1px solid var(--line)}
+  li .no{width:20px;flex:none;font-size:12.5px;color:var(--sub)}
+  li .art{width:44px;height:44px}
   li .meta{flex:1;min-width:0}
-  li .meta .ti{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  li .meta .ar{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  li .dur{font-size:11px;color:var(--dim2);flex:none}
-  .pill{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px;
-        border:1px solid var(--line2);color:var(--dim);flex:none;white-space:nowrap}
-  .pill.me{border-color:var(--accent);color:var(--accent)}
-  .none{color:var(--dim2);font-size:13px;padding:6px 0}
-  .srcnote{font-size:10.5px;color:var(--dim2);margin-top:8px}
-
-  /* ---------- 드라이브 앨범 ---------- */
-  .album{border:1px solid #2b3a52;background:linear-gradient(160deg,#131e2a,#101722)}
-  .album .hd{font-size:19px;font-weight:800;letter-spacing:-.02em;margin:6px 0 3px}
-  .album .sub{font-size:12px;color:var(--dim);margin-bottom:10px}
+  li .ti{font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  li .ar{font-size:12px;color:var(--sub);margin-top:2px;
+         white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  li .dur{font-size:12.5px;color:var(--sub);flex:none}
+  .empty{padding:18px 0 4px;font-size:13.5px;color:var(--sub);text-align:center}
+  .foot{padding:18px 20px calc(env(safe-area-inset-bottom) + 18px);
+        font-size:12px;color:var(--sub);text-align:center}
+  .gatehint{padding:14px 20px;font-size:12.5px;color:var(--sub);text-align:center}
+  h1{font-size:21px;font-weight:700;letter-spacing:-.02em;margin:0 0 7px;line-height:1.35}
+  .p{font-size:13.5px;color:var(--sub);margin:0}
 
   /* ---------- 토스트 ---------- */
   #toast{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 18px);
-         max-width:460px;margin:0 auto;background:#2a1a20;border:1px solid #6b3340;
-         color:#ffd9e0;padding:13px 15px;border-radius:12px;display:none;
-         font-size:13.5px;font-weight:600;box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:50}
-  #toast.on{display:block;animation:rise .22s ease}
-  @keyframes rise{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
-
-  .foot{text-align:center;color:var(--dim2);font-size:11px;margin-top:18px}
+         max-width:428px;margin:0 auto;background:var(--inv);color:var(--oninv);
+         padding:13px 16px;border-radius:10px;display:none;font-size:13.5px;font-weight:600;
+         z-index:50}
+  #toast.on{display:block}
 </style>
 </head>
 <body>
 <div class="wrap">
 
   <header>
-    <div class="logo">플레이<i>시트</i></div>
-    <div class="spacer"></div>
-    <div class="badge" id="bConn">연결 중</div>
-    <div class="badge" id="bDrive" style="display:none"></div>
+    <div class="brand">플레이시트</div>
+    <div class="st" id="hStatus">연결 중</div>
   </header>
+  <div class="hr"></div>
+  <div id="moodSlot"></div>
 
   <!-- 최초 진입: 좌석 선택 -->
-  <section id="gate" class="on">
-    <div class="gate-h">어디에 앉으셨어요?</div>
-    <div class="gate-p">좌석을 고르면 바로 선곡에 참여합니다.<br>다음부터는 타기만 하면 자동으로 연결됩니다.</div>
-    <div class="cabin">
-      <div class="cabin-tag">1열</div>
-      <div class="cabin-row" id="gRow1"></div>
-      <div class="cabin-tag">2열</div>
-      <div class="cabin-row" id="gRow2"></div>
+  <section id="gate">
+    <div class="sec">
+      <h1>어디에 앉으셨어요?</h1>
+      <p class="p">좌석을 고르면 바로 선곡에 참여합니다.<br>다음부터는 타기만 하면 자동으로 연결됩니다.</p>
     </div>
-    <div class="foot" id="gateHint">차량이 연결되면 좌석이 표시됩니다</div>
+    <div class="hr"></div>
+    <div class="sec">
+      <div class="carbox" id="carbox"></div>
+    </div>
+    <div class="hr"></div>
+    <div class="sec">
+      <div class="lbl">표시할 이름</div>
+      <input id="nick" placeholder="예: 지호" autocomplete="off" maxlength="12">
+    </div>
+    <div class="hr"></div>
+    <div class="gatehint" id="gateHint">차량이 연결되면 좌석이 표시됩니다</div>
   </section>
 
   <!-- 메인 -->
-  <main id="main" style="display:none">
-
-    <div id="moodSlot"></div>
+  <main id="main" hidden>
     <div id="turnSlot"></div>
     <div id="stripSlot"></div>
+
+    <section class="sec">
+      <div class="lbl">좌석 <span class="n" id="seatNote"></span></div>
+      <div class="cabin">
+        <div class="r" id="cRow1"></div>
+        <div class="r" id="cRow2"></div>
+      </div>
+    </section>
+    <div class="hr"></div>
+
     <div id="suggSlot"></div>
 
-    <div class="card">
-      <div class="label">지금 재생</div>
+    <section class="sec">
+      <div class="lbl">지금 재생</div>
       <div class="np">
-        <div class="art ph" id="npArt">♪</div>
-        <div class="np-t">
-          <div class="ti" id="npTitle">재생 중인 곡이 없습니다</div>
-          <div class="ar" id="npArtist"></div>
-          <div class="by" id="npBy"></div>
+        <div class="art" id="npArt"></div>
+        <div class="meta">
+          <div class="idle" id="npIdle">재생 중인 곡이 없습니다</div>
+          <div class="ti" id="npTitle" hidden></div>
+          <div class="ar" id="npArtist" hidden></div>
+          <div class="by" id="npBy" hidden></div>
         </div>
+        <button class="iconbtn" id="bSkipIcon" title="건너뛰기"></button>
       </div>
-      <div class="bar"><i id="npBar"></i></div>
+      <div class="bar" id="npBarBox"><i id="npBar"></i></div>
+      <div class="times" id="npTimes"><span id="npTime"></span><span id="npSkip"></span></div>
       <div class="acts">
-        <button class="wide sm" id="bLike">♥ 좋아요</button>
-        <button class="wide sm" id="bSkip">건너뛰기 <span id="skipN"></span></button>
+        <button class="sm" id="bLike">좋아요</button>
+        <button class="sm" id="bSkip">건너뛰기</button>
       </div>
-    </div>
+    </section>
+    <div class="hr"></div>
 
-    <div class="card">
-      <div class="label">곡 추가</div>
+    <section class="sec">
+      <div class="lbl">곡 추가 <span class="r" id="srcNote"></span></div>
       <div class="srow">
         <input id="q" placeholder="곡명 또는 가수" autocomplete="off" enterkeyhint="search">
         <button class="primary" id="bSearch">검색</button>
       </div>
       <ul id="results"></ul>
-      <div class="srcnote" id="srcNote"></div>
-    </div>
+    </section>
+    <div class="hr"></div>
 
-    <div class="card">
-      <div class="label">대기 중인 곡 <span id="qCount"></span></div>
-      <div class="srcnote" id="qLen" style="margin:-4px 0 8px"></div>
+    <section class="sec">
+      <div class="lbl">대기 중인 곡 <span class="n" id="qCount">0</span>
+        <span class="r" id="qLen"></span></div>
       <ul id="queue"></ul>
-    </div>
+    </section>
+    <div class="hr"></div>
 
-    <div class="card album" id="album" style="display:none"></div>
+    <section class="sec" id="album" hidden></section>
 
     <div class="foot" id="foot"></div>
   </main>
@@ -270,8 +284,6 @@
 
 <script>
 /* ============================================================
-   동승자 웹앱
-
    원칙 두 가지 — 어기면 차량 판정과 화면이 어긋납니다.
    1. 스스로 판단하지 않습니다. 화면은 state.sync 를 그대로 그립니다.
       턴 순서·스킵 과반을 폰에서 계산하지 않습니다.
@@ -290,14 +302,16 @@ const MOOD_COLOR = {
   WINDING:"#2F8F6B", LOUNGE:"#7A5CA8", ARRIVING:"#BF6B4A", CALM:"#6E7B86",
 };
 
+/* 차량 CarScreen.kt 의 좌석 이름·배치와 같은 값입니다. */
 const SEAT = {
-  R1L:{ name:"운전석", row:1, driver:true },
-  R1R:{ name:"조수석", row:1 },
-  R2L:{ name:"2열 왼쪽", row:2 },
-  R2C:{ name:"2열 가운데", row:2 },
-  R2R:{ name:"2열 오른쪽", row:2 },
+  R1L:{ name:"운전석", row:1, driver:true, x:.135, y:.255, w:.29,  h:.215 },
+  R1R:{ name:"조수석", row:1,              x:.575, y:.255, w:.29,  h:.215 },
+  R2L:{ name:"2열 좌", row:2,              x:.115, y:.555, w:.245, h:.215 },
+  R2C:{ name:"2열 중", row:2,              x:.3775,y:.555, w:.245, h:.215 },
+  R2R:{ name:"2열 우", row:2,              x:.64,  y:.555, w:.245, h:.215 },
 };
-const label = (id) => (SEAT[id] && SEAT[id].name) || id;
+const AUTO_SEAT = "AUTO";
+const label = (id) => id === AUTO_SEAT ? "분위기 추천" : ((SEAT[id] && SEAT[id].name) || id);
 const $ = (id) => document.getElementById(id);
 
 const sessionId = new URLSearchParams(location.search).get("s") || "a3f9";
@@ -309,6 +323,8 @@ if (!deviceId) {
 let nickname = localStorage.getItem("playseat.nickname") || "";
 
 let ws = null, state = null, mySeat = null, results = [], carOnline = false;
+/* 머리말에 띄울 연결 상태. 끊긴 동안에는 주행 상태로 덮지 않습니다. */
+let link = "연결 중";
 
 /* ---------- 유틸 ---------- */
 const mmss = (ms) => {
@@ -324,30 +340,66 @@ function toast(msg) {
 }
 const send = (o) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ ts: Date.now(), ...o }));
 
+function node(markup) {
+  const d = document.createElement("div");
+  d.innerHTML = markup.trim();
+  return d.firstElementChild;
+}
+/** 차량 Icons.kt 와 같은 선 아이콘. 24 기준 2px, 끝은 둥글게. */
+const ICON = {
+  note: `<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+         <path d="M9 18V5l9 2v8"/><circle cx="6.4" cy="18" r="2.6"/><circle cx="15.4" cy="15" r="2.6"/></svg>`,
+  next: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+         <path d="M6 5l9 7-9 7z"/><path d="M18 5v14"/></svg>`,
+};
+
 /**
- * 앨범아트. 외부 URL 이 있으면 그걸 쓰고, 없으면 곡명으로 결정되는 그라데이션 타일을
- * 만듭니다. 큐레이션 목록의 곡은 커버 이미지가 없는데, 빈 자리로 두면 "이미지 깨짐"
- * 처럼 보입니다. 같은 곡은 항상 같은 색이 나오므로 목록에서 곡을 구분하는 데도 쓰입니다.
+ * 앨범 커버.
+ *
+ * 주소가 있으면 그걸 쓰고, 없으면 차량과 같은 평면 타일 + 음표 아이콘을 둡니다.
+ * 예전에는 곡명으로 색을 만든 그라데이션 타일을 썼는데, 헤드유닛 화면 옆에
+ * 두면 폰만 다른 앱처럼 보였습니다. 구분은 색이 아니라 제목이 합니다.
  */
-function artEl(url, cls, seedText) {
+function artEl(url, seedText) {
   if (url) {
     const i = document.createElement("img");
-    i.className = "art" + (cls ? " " + cls : ""); i.src = url; i.alt = "";
-    i.loading = "lazy";
-    // 외부 이미지가 실패하면 조용히 타일로 바꿉니다
-    i.onerror = () => i.replaceWith(artEl(null, cls, seedText));
+    i.className = "art"; i.src = url; i.alt = ""; i.loading = "lazy";
+    i.onerror = () => i.replaceWith(artEl(null, seedText));   // 실패하면 조용히 타일로
     return i;
   }
   const d = document.createElement("div");
-  d.className = "art ph" + (cls ? " " + cls : "");
-  const seed = (seedText || "♪").trim();
-  let h = 0;
-  for (let k = 0; k < seed.length; k++) h = (h * 31 + seed.charCodeAt(k)) % 360;
-  const h2 = (h + 42) % 360;
-  d.style.background =
-    `linear-gradient(140deg, hsl(${h} 46% 42%), hsl(${h2} 52% 26%))`;
-  d.textContent = seed ? seed[0] : "♪";
+  d.className = "art";
+  d.append(node(ICON.note));
   return d;
+}
+
+/* ---------- 분위기 배경 ----------
+   차량은 바탕에 무드 색을 아주 옅게 섞습니다(주간 5.5%, 야간 12%).
+   같은 값을 폰에도 씁니다. 세 곳(차량 화면·폰·실내 조명)이 같이 바뀌어야
+   "분위기가 바뀌었다"로 읽히고, 한 곳만 바뀌면 고장으로 보입니다. */
+const darkMode = () => matchMedia("(prefers-color-scheme: dark)").matches;
+function applyTint(hex) {
+  const root = document.documentElement;
+  if (!hex) { root.style.removeProperty("--bg"); return; }
+  const base = darkMode() ? [0x15, 0x15, 0x15] : [0xff, 0xff, 0xff];
+  const t = darkMode() ? 0.12 : 0.055;
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const m = base.map((v, i) => Math.round(v + (c[i] - v) * t));
+  root.style.setProperty("--bg", `rgb(${m.join(",")})`);
+}
+
+/** 머리말 오른쪽. 차량 Header 와 같은 문구를 씁니다. */
+function status() {
+  if (link) { $("hStatus").textContent = link; return; }
+  if (!state) { $("hStatus").textContent = "연결됨"; return; }
+  const driving = state.driveState === "DRIVING";
+  $("hStatus").textContent = [
+    driving ? "주행 중" : "정차 중",
+    state.mode === "CHARGING_LOUNGE" ? "충전 라운지" : null,
+    driving && state.etaSeconds != null ? `도착까지 ${Math.floor(state.etaSeconds / 60)}분` : null,
+  ].filter(Boolean).join(" · ");
 }
 
 /* ---------- 연결 ---------- */
@@ -356,22 +408,21 @@ function connect() {
   const host = location.host || "localhost:8080";
   ws = new WebSocket(`${proto}//${host}/session/${sessionId}?role=phone&deviceId=${deviceId}`);
 
-  ws.onopen = () => { $("bConn").className = "badge live"; $("bConn").textContent = "연결됨"; };
+  ws.onopen = () => { link = null; status(); };
 
   ws.onclose = () => {
-    $("bConn").className = "badge off"; $("bConn").textContent = "재연결 중";
-    carOnline = false;
+    link = "재연결 중"; carOnline = false; status();
     setTimeout(connect, 2000);
   };
 
   ws.onmessage = (e) => {
     let m; try { m = JSON.parse(e.data); } catch { return; }
 
-    if (m.type === "state.sync") { carOnline = true; state = m; render(); }
-    else if (m.type === "car.online") { carOnline = true; }
+    if (m.type === "state.sync") { carOnline = true; link = null; state = m; render(); }
+    else if (m.type === "car.online") { carOnline = true; link = null; status(); }
     else if (m.type === "car.offline") {
       carOnline = false;
-      $("bConn").className = "badge off"; $("bConn").textContent = "차량 꺼짐";
+      link = "차량 꺼짐"; status();
       $("gateHint").textContent = "차량 앱이 실행되면 좌석이 표시됩니다";
     }
     else if (m.type === "search.result") { results = m.items || []; renderResults(m); }
@@ -389,43 +440,125 @@ function connect() {
   };
 }
 
-/* ---------- 좌석 참여 ---------- */
-function claim(seatId) {
-  if (!nickname) {
-    nickname = (prompt("표시할 이름을 알려주세요") || "").trim();
-    if (!nickname) return;
-    localStorage.setItem("playseat.nickname", nickname);
+/* ---------- 좌석 ---------- */
+
+/**
+ * 위에서 내려다본 차체. 차량 CarTopView.kt 와 같은 윤곽입니다.
+ *
+ * 좌석을 표로 늘어놓는 것보다 "어느 자리인가" 가 형태로 바로 읽히고,
+ * 헤드유닛에서 본 그림을 폰에서 다시 보면 같은 기능이라는 것이 설명 없이 전해집니다.
+ * 앞이 위쪽입니다. 선 굵기는 화면 크기와 무관하게 고정합니다(non-scaling-stroke).
+ */
+const PROFILE = [
+  [0, .255], [.035, .345], [.095, .410], [.200, .448], [.480, .462],
+  [.760, .455], [.890, .420], [.962, .345], [1, .255],
+];
+function carSvg() {
+  const w = 1000, h = Math.round(w / 0.63), cx = w / 2;
+  const X = (r) => cx + r * w, Y = (f) => f * h;
+
+  let d = `M ${X(PROFILE[0][1])} 0`;
+  for (let i = 0; i < PROFILE.length - 1; i++) {
+    const [y0, r0] = PROFILE[i], [y1, r1] = PROFILE[i + 1], mid = (y1 - y0) / 2;
+    d += ` C ${X(r0)} ${Y(y0 + mid)}, ${X(r1)} ${Y(y1 - mid)}, ${X(r1)} ${Y(y1)}`;
   }
+  d += ` L ${X(-PROFILE[PROFILE.length - 1][1])} ${h}`;
+  for (let i = PROFILE.length - 1; i > 0; i--) {
+    const [y0, r0] = PROFILE[i], [y1, r1] = PROFILE[i - 1], mid = (y0 - y1) / 2;
+    d += ` C ${X(-r0)} ${Y(y0 - mid)}, ${X(-r1)} ${Y(y1 + mid)}, ${X(-r1)} ${Y(y1)}`;
+  }
+  d += " Z";
+
+  // 바퀴. 차체 밑으로 살짝 드러나는 정도만. 윤곽만 있으면 보트로도 읽힙니다.
+  const tw = .028 * w, th = .085 * h;
+  const tires = [.150, .740].flatMap((ty) => [-1, 1].map((sg) =>
+    `<rect x="${X(sg * .424) - tw / 2}" y="${Y(ty)}" width="${tw}" height="${th}"
+           rx="${tw * .45}" fill="var(--line)" opacity=".32"/>`)).join("");
+
+  const line = (x1, y1, x2, y2) =>
+    `<line x1="${X(x1)}" y1="${Y(y1)}" x2="${X(x2)}" y2="${Y(y2)}"/>`;
+
+  return `
+  <svg class="body" viewBox="-6 -6 ${w + 12} ${h + 12}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    ${tires}
+    <path d="${d}" fill="none" stroke="var(--line)" stroke-width="1.6"
+          stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+    <!-- 실내. 좌석이 놓이는 자리입니다. -->
+    <rect x="${X(-.395)}" y="${Y(.245)}" width="${.79 * w}" height="${.57 * h}" rx="37"
+          fill="var(--glass)" stroke="var(--line)" stroke-opacity=".55" stroke-width="1"
+          vector-effect="non-scaling-stroke"/>
+    <g stroke="var(--line)" stroke-opacity=".55" stroke-width="1" stroke-linecap="round"
+       vector-effect="non-scaling-stroke">
+      ${line(-.30, .145, .30, .145)}
+      ${line(-.30, .165, -.395, .245)}${line(.30, .165, .395, .245)}
+      ${line(-.395, .815, -.305, .885)}${line(.395, .815, .305, .885)}
+      ${line(-.305, .885, .305, .885)}
+    </g>
+    <!-- 사이드미러. 차체가 폭을 꽉 쓰므로 선에 절반쯤 걸쳐 그려야 잘리지 않습니다. -->
+    <rect x="${X(-.490)}" y="${Y(.252)}" width="${.065 * w}" height="${.034 * h}"
+          rx="${.030 * w}" fill="var(--line)" opacity=".55"/>
+    <rect x="${X(.425)}" y="${Y(.252)}" width="${.065 * w}" height="${.034 * h}"
+          rx="${.030 * w}" fill="var(--line)" opacity=".55"/>
+    <!-- 1열 사이 센터 콘솔. 테두리만 그리면 빈 좌석이 하나 더 있는 것처럼 읽힙니다. -->
+    <rect x="${X(-.040)}" y="${Y(.335)}" width="${.080 * w}" height="${.115 * h}"
+          rx="${.018 * w}" fill="var(--line)" opacity=".16"/>
+  </svg>`;
+}
+
+function claim(seatId) {
+  const typed = $("nick").value.trim();
+  if (typed) { nickname = typed; localStorage.setItem("playseat.nickname", nickname); }
+  if (!nickname) { $("nick").focus(); toast("표시할 이름을 먼저 적어주세요"); return; }
   send({ type:"seat.claim", deviceId, seatId, nickname });
 }
 
-function seatNode(s, forGate) {
-  const el = document.createElement("div");
+/**
+ * 좌석 하나. 차량 SeatSpot 과 같은 구성입니다 —
+ * 헤드레스트 + 이름 + 사람 + 선곡 순서 번호. 좌석 안에 숫자를 더 넣지 않습니다.
+ */
+function seatNode(seatId, opts) {
+  const s = (state && (state.seats || []).find((x) => x.seatId === seatId)) || { seatId };
+  const lounge = state && state.mode === "CHARGING_LOUNGE";
+  const occupied = !!s.occupied;
   const isMine = s.deviceId === deviceId;
-  const isTurn = state && state.turnSeatId === s.seatId && state.mode !== "CHARGING_LOUNGE";
-  const free = s.occupied && !s.deviceId;
+  const isTurn = !lounge && state && state.turnSeatId === seatId;
+  const free = occupied && !s.deviceId;
+  const order = turnOrder();
+  const no = lounge ? -1 : order.indexOf(seatId);
 
-  el.className = "seat"
-    + (!s.occupied ? " empty" : "")
-    + (free ? " free" : "")
-    + (isMine ? " mine" : "")
-    + (isTurn ? " turn" : "");
+  const el = document.createElement(opts.pick && free ? "button" : "div");
+  el.className = "seat" + (occupied ? " on" : "") + (isTurn ? " turn" : "")
+    + (isMine ? " me" : "") + (opts.pick && free ? " pick" : "");
+  if (opts.absolute) {
+    const g = SEAT[seatId];
+    el.style.cssText =
+      `left:${g.x * 100}%;top:${g.y * 100}%;width:${g.w * 100}%;height:${g.h * 100}%`;
+  }
 
-  const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = label(s.seatId);
-  const st = document.createElement("span"); st.className = "st";
-  st.textContent = !s.occupied ? "빈 좌석"
+  const head = document.createElement("div"); head.className = "head";
+  const face = document.createElement("div"); face.className = "face";
+  const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = label(seatId);
+  const st = document.createElement("div"); st.className = "st";
+  st.textContent = !occupied ? "빈 좌석"
     : isMine ? "나"
     : s.nickname ? s.nickname
-    : forGate ? "선택 가능" : "참여 대기";
-  el.append(nm, st);
+    : opts.pick ? "선택 가능"
+    : seatId === "R1L" ? "음성" : "대기";
+  face.append(nm, st);
 
-  if (SEAT[s.seatId] && SEAT[s.seatId].driver) {
-    const w = document.createElement("span"); w.className = "wheel"; w.textContent = "운전";
-    el.append(w);
+  if (no >= 0) {
+    const b = document.createElement("div"); b.className = "no"; b.textContent = no + 1;
+    face.append(b);
   }
-  if (free) el.onclick = () => claim(s.seatId);
+  el.append(head, face);
+  if (opts.pick && free) el.onclick = () => claim(seatId);
   return el;
 }
+
+/** 선곡이 도는 순서. 차량 SeatId.TURN_ORDER 와 같은 순서입니다. */
+const TURN_ORDER = ["R1L", "R1R", "R2L", "R2C", "R2R"];
+const turnOrder = () => !state ? []
+  : TURN_ORDER.filter((id) => (state.seats || []).some((s) => s.seatId === id && s.occupied));
 
 /* ---------- 렌더 ---------- */
 function render() {
@@ -434,121 +567,148 @@ function render() {
   const me = seats.find((s) => s.deviceId === deviceId);
   mySeat = me ? me.seatId : null;
 
-  // 좌석 미선택이면 게이트
-  if (!mySeat) {
-    $("gate").className = "on"; $("main").style.display = "none";
-    $("gRow1").replaceChildren(...seats.filter((s) => (SEAT[s.seatId]||{}).row === 1).map((s) => seatNode(s, true)));
-    $("gRow2").replaceChildren(...seats.filter((s) => (SEAT[s.seatId]||{}).row === 2).map((s) => seatNode(s, true)));
-    const free = seats.filter((s) => s.occupied && !s.deviceId).length;
-    $("gateHint").textContent = free ? "앉으신 좌석을 눌러주세요" : "착석이 감지된 좌석이 없습니다";
-    return;
-  }
-  $("gate").className = ""; $("main").style.display = "block";
-
   const driving = state.driveState === "DRIVING";
   const lounge  = state.mode === "CHARGING_LOUNGE";
   const canAdd  = lounge || state.turnSeatId === mySeat;
 
-  // 헤더 배지
-  const bd = $("bDrive"); bd.style.display = "inline-block";
-  bd.className = "badge " + (driving ? "drive" : "");
-  bd.textContent = driving
-    ? (state.etaSeconds != null ? `주행 중 · ${Math.floor(state.etaSeconds/60)}분 남음` : "주행 중")
-    : "정차 중";
-
-  // 내 차례
-  const ts = $("turnSlot");
-  // 남은 시간이 null 이면 제한시간이 돌지 않는 상황입니다
-  // (라운지·혼자 탑승·아무도 미연결). 그때는 숫자를 띄우지 않습니다.
-  const leftMs = state.turnRemainingMs;
-  const left = leftMs != null ? `${Math.ceil(leftMs / 1000)}초` : null;
-
-  if (lounge) ts.replaceChildren();
-  else if (canAdd) {
-    ts.innerHTML = `<div class="turnbar"><div class="dot"></div><div>
-      <b>당신의 차례입니다</b><small>한 곡을 골라 큐에 넣어주세요${
-        left ? ` · 남은 시간 <span class="left">${left}</span>` : ""}</small></div></div>`;
-  } else if (state.turnSeatId) {
-    ts.innerHTML = `<div class="waitbar">다음 선곡 차례 · <b>${label(state.turnSeatId)}</b>${
-      left ? ` · <span class="left">${left}</span>` : ""}</div>`;
-  } else ts.replaceChildren();
+  status();
 
   // 분위기
   const ms = $("moodSlot");
   if (state.moodLabel) {
     const c = MOOD_COLOR[state.moodId] || "#6E7B86";
-    ms.innerHTML = `<div class="moodbar"><i class="mdot"></i><b></b><span></span></div>`;
-    ms.querySelector(".mdot").style.background = c;
+    ms.innerHTML = `<div class="mood"><i class="dot"></i><b></b><span></span></div><div class="hr"></div>`;
+    ms.querySelector(".dot").style.background = c;
     ms.querySelector("b").textContent = state.moodLabel;
     ms.querySelector("span").textContent = state.moodReason || "";
-    // 바탕에도 아주 옅게 깔아 둡니다. 글자를 읽는 화면이라 진하면 방해가 됩니다.
-    document.body.style.background =
-      `linear-gradient(180deg, ${c}1f, var(--bg) 320px), var(--bg)`;
+    applyTint(c);
   } else {
     ms.replaceChildren();
-    document.body.style.background = "";
+    applyTint(null);
   }
+
+  // 좌석 미선택이면 게이트
+  if (!mySeat) {
+    $("gate").hidden = false; $("main").hidden = true;
+    const box = $("carbox");
+    if (!box.querySelector("svg")) box.innerHTML = carSvg();
+    box.querySelectorAll(".seat").forEach((n) => n.remove());
+    Object.keys(SEAT).forEach((id) =>
+      box.append(seatNode(id, { absolute:true, pick:true })));
+    const free = seats.filter((s) => s.occupied && !s.deviceId).length;
+    $("gateHint").textContent = free ? "앉으신 좌석을 눌러주세요" : "착석이 감지된 좌석이 없습니다";
+    return;
+  }
+  $("gate").hidden = true; $("main").hidden = false;
+
+  // 차례
+  const ts = $("turnSlot");
+  // 남은 시간이 null 이면 제한시간이 돌지 않는 상황입니다
+  // (라운지·혼자 탑승·아무도 미연결). 그때는 숫자를 띄우지 않습니다.
+  const leftMs = state.turnRemainingMs;
+  const left = leftMs != null ? `${Math.ceil(leftMs / 1000)}초` : null;
+  const pct = leftMs != null && state.turnDeadlineMs
+    ? Math.max(0, Math.min(100, (leftMs / state.turnDeadlineMs) * 100)) : 0;
+
+  if (lounge || !state.turnSeatId) ts.replaceChildren();
+  else {
+    const mine = state.turnSeatId === mySeat;
+    ts.innerHTML = `<div class="turn${mine ? " mine" : ""}">
+        <b></b><span class="sub"></span><i class="gauge"></i>
+      </div><div class="hr"></div>`;
+    ts.querySelector("b").textContent = mine ? "당신의 차례입니다" : `다음 선곡 차례 · ${label(state.turnSeatId)}`;
+    ts.querySelector(".sub").textContent = mine
+      ? (left ? `한 곡을 골라 큐에 넣어주세요 · 남은 시간 ${left}` : "한 곡을 골라 큐에 넣어주세요")
+      : (left ? `${left} 뒤 다음 좌석으로 넘어갑니다` : "곡을 고르는 중입니다");
+    ts.querySelector(".gauge").style.width = pct + "%";
+  }
+
+  // 알림 띠
+  const st = $("stripSlot"); st.replaceChildren();
+  const note = (cls, b, s) =>
+    `<div class="note ${cls}"><b>${b}</b><span>${s}</span></div><div class="hr"></div>`;
+  let html = "";
+  if (lounge) html += note("on", "충전 라운지 모드",
+    "차례 없이 아무 좌석이나 바로 곡을 넣을 수 있습니다");
+  if (state.landing) html += note("", "도착 5분 전 — 랜딩 구간",
+    "곡이 끊기지 않게 마무리하는 구간입니다");
+  if (driving && !state.landing) html += note("", "주행 중에는 선곡 조작이 이 폰에 있습니다",
+    "운전자 화면은 잠겨 있고, 운전자는 음성으로만 참여합니다");
+  st.innerHTML = html;
+
+  // 좌석 (축약)
+  $("seatNote").textContent = lounge ? "차례 없이 모두 바로 추가"
+    : turnOrder().length ? "번호 순으로 돌아갑니다" : "탑승을 기다리고 있습니다";
+  $("cRow1").replaceChildren(...["R1L", "R1R"].map((id) => seatNode(id, {})));
+  $("cRow2").replaceChildren(...["R2L", "R2C", "R2R"].map((id) => seatNode(id, {})));
 
   // 분위기 추천
   renderSuggestions();
 
-  // 상태 띠
-  const st = $("stripSlot"); st.replaceChildren();
-  if (lounge) st.innerHTML += `<div class="strip lounge"><div class="ic">⚡</div><div>
-    <b>충전 라운지</b><span>차례를 기다리지 않습니다. 바로 곡을 추가하세요.</span></div></div>`;
-  if (state.landing) st.innerHTML += `<div class="strip landing"><div class="ic">◉</div><div>
-    <b>도착 5분 전</b><span>곡이 끊기지 않게 마무리하는 구간입니다.</span></div></div>`;
-  if (driving && !state.landing) st.innerHTML += `<div class="strip driving"><div class="ic">▣</div><div>
-    <b>지금 선곡 권한은 이 폰에 있습니다</b><span>운전자 화면은 잠겨 있고, 운전자는 음성으로만 참여합니다.</span></div></div>`;
-
   // 지금 재생
   const np = state.nowPlaying;
-  const oldArt = $("npArt");
-  const newArt = artEl(np && np.artworkUrl, null, np && np.title); newArt.id = "npArt";
-  oldArt.replaceWith(newArt);
-  $("npTitle").textContent = np ? np.title : "재생 중인 곡이 없습니다";
-  $("npArtist").textContent = np ? np.artist : "";
-  $("npBy").textContent = np ? `${label(np.requestedBySeat)} 선곡 · ${mmss(np.positionMs)} / ${mmss(np.durationMs)}` : "";
-  $("npBar").style.width = np ? Math.min(100, ((np.positionMs||0) / Math.max(1, np.durationMs)) * 100) + "%" : "0";
-  $("skipN").textContent = np ? `${(state.skipVotes||[]).length}/${state.skipThreshold||"-"}` : "";
+  $("npArt").replaceWith(Object.assign(artEl(np && np.artworkUrl, np && np.title), { id:"npArt" }));
+  $("npIdle").hidden = !!np;
+  for (const k of ["npTitle", "npArtist", "npBy"]) $(k).hidden = !np;
+  if (np) {
+    $("npTitle").textContent = np.title;
+    $("npArtist").textContent = np.artist;
+    $("npBy").textContent = `${label(np.requestedBySeat)} 선곡`;
+    $("npTime").textContent = `${mmss(np.positionMs)} / ${mmss(np.durationMs)}`;
+    $("npSkip").textContent = `스킵 투표 ${(state.skipVotes || []).length}/${state.skipThreshold || "-"}`;
+  } else {
+    $("npTime").textContent = ""; $("npSkip").textContent = "";
+  }
+  $("npBar").style.width = np
+    ? Math.min(100, ((np.positionMs || 0) / Math.max(1, np.durationMs)) * 100) + "%" : "0";
+  $("bSkipIcon").hidden = $("npBarBox").hidden = $("npTimes").hidden = !np;
   $("bLike").disabled = $("bSkip").disabled = !np;
-  $("bSkip").className = "wide sm" + ((state.skipVotes||[]).includes(mySeat) ? " ghost" : "");
+  $("bSkip").textContent = (state.skipVotes || []).includes(mySeat) ? "투표함" : "건너뛰기";
 
   // 큐
   const q = state.queue || [];
-  $("qCount").textContent = q.length ? q.length : "";
+  $("qCount").textContent = q.length;
   $("qLen").textContent = state.queueTargetMs
-    ? `큐 ${mins(state.queueTotalMs)}분 / 도착까지 ${mins(state.queueTargetMs)}분`
-    : "";
+    ? `${mins(state.queueTotalMs)}분 / 도착 ${mins(state.queueTargetMs)}분` : "";
   const ql = $("queue"); ql.replaceChildren();
-  if (!q.length) ql.innerHTML = `<li><span class="none">아직 없습니다</span></li>`;
-  else q.forEach((t) => {
-    const li = document.createElement("li");
-    li.append(artEl(t.artworkUrl, null, t.title));
-    const m = document.createElement("div"); m.className = "meta";
-    m.innerHTML = `<div class="ti"></div><div class="ar"></div>`;
-    m.querySelector(".ti").textContent = t.title;
-    m.querySelector(".ar").textContent = t.artist;
-    li.append(m);
-    const p = document.createElement("span");
-    p.className = "pill" + (t.requestedBySeat === mySeat ? " me" : "");
-    p.textContent = t.requestedBySeat === mySeat ? "내 선곡" : label(t.requestedBySeat);
-    li.append(p);
-    ql.append(li);
-  });
+  if (!q.length) {
+    ql.innerHTML = `<li style="border:0"><span class="empty">차례인 좌석이 곡을 넣으면 여기에 쌓입니다</span></li>`;
+  } else q.forEach((t, i) => ql.append(trackRow(t, { index:i + 1, by:true })));
 
   // 검색 결과의 추가 버튼 상태를 차례에 맞춰 갱신
   for (const b of $("results").querySelectorAll("button")) b.disabled = !canAdd;
   $("foot").textContent = `${label(mySeat)} · ${nickname || deviceId}`;
 }
 
+/** 목록 한 줄. 차량 QueueRow 와 같은 구성입니다. */
+function trackRow(t, o) {
+  const li = document.createElement("li");
+  if (o.index) {
+    const n = document.createElement("span"); n.className = "no"; n.textContent = o.index;
+    li.append(n);
+  }
+  li.append(artEl(t.artworkUrl, t.title));
+  const m = document.createElement("div"); m.className = "meta";
+  const ti = document.createElement("div"); ti.className = "ti"; ti.textContent = t.title;
+  const ar = document.createElement("div"); ar.className = "ar";
+  ar.textContent = o.by ? `${t.artist} · ${label(t.requestedBySeat)}`
+                        : `${t.artist} · ${mmss(t.durationMs)}`;
+  m.append(ti, ar); li.append(m);
+  if (o.tail) li.append(o.tail(t));
+  else { const d = document.createElement("span"); d.className = "dur";
+         d.textContent = mmss(t.durationMs); li.append(d); }
+  return li;
+}
+
 /**
  * 차가 권하는 곡.
  *
- * 아무도 안 누르면 카운트다운이 끝나는 대로 차가 담습니다. 그래서 '담기' 보다
- * '괜찮아요' 가 더 중요한 버튼입니다 — 멈추지 않으면 그냥 들어가니까요.
- * 두 버튼 모두 자기 차례가 아니어도 누를 수 있습니다. 차가 권한 것을
- * 받아들이는 것뿐이고, 선곡권이 한 사람에게 쏠리는 것이 아닙니다.
+ * 아무도 안 누르면 카운트다운이 끝나는 대로 차가 담습니다. 그래서 '괜찮아요' 가
+ * '지금 담기' 만큼 중요한 버튼입니다 — 멈추지 않으면 그냥 들어가니까요.
+ * 둘 다 같은 무게로 두고 '괜찮아요' 를 먼저(왼쪽) 둡니다. 어느 쪽도 안전한
+ * 기본값이 아니기 때문에 한쪽만 강조하면 거짓말이 됩니다.
+ * 자기 차례가 아니어도 누를 수 있습니다. 차가 권한 것을 받아들이는 것뿐이고
+ * 선곡권이 한 사람에게 쏠리는 것이 아닙니다.
  */
 function renderSuggestions() {
   const slot = $("suggSlot");
@@ -558,37 +718,27 @@ function renderSuggestions() {
   const c = MOOD_COLOR[state.moodId] || "#6E7B86";
   const sec = Math.max(0, Math.ceil((state.suggestAutoAddMs || 0) / 1000));
 
-  const card = document.createElement("div");
-  card.className = "card sugg";
-  card.innerHTML = `
-    <div class="shead"><i class="mdot" style="width:10px;height:10px;border-radius:50%"></i>
-      <b></b><span class="cd"></span></div>
-    <div class="why"></div>
-    <ul id="suggList"></ul>
+  const box = document.createElement("section");
+  box.className = "sec";
+  box.innerHTML = `
+    <div class="lbl"><i class="dot" style="width:10px;height:10px;border-radius:50%;flex:none"></i>
+      <span class="t"></span><span class="r cd"></span></div>
+    <ul></ul>
     <div class="acts">
-      <button class="wide sm primary" id="bTakeNow">지금 담기</button>
-      <button class="wide sm" id="bNoThanks">괜찮아요</button>
+      <button class="sm" id="bNoThanks">괜찮아요</button>
+      <button class="sm" id="bTakeNow">지금 담기</button>
     </div>`;
-  card.querySelector(".mdot").style.background = c;
-  card.querySelector("b").textContent =
-    (state.moodLabel ? state.moodLabel + "에 어울리는 곡" : "추천 곡");
-  card.querySelector(".cd").textContent = `${sec}초 뒤 담김`;
-  card.querySelector(".why").textContent =
-    "아무도 곡을 넣지 않아서 차가 골랐습니다. 담지 않으려면 '괜찮아요'.";
+  box.querySelector(".dot").style.background = c;
+  box.querySelector(".t").textContent =
+    state.moodLabel ? `${state.moodLabel}에 어울리는 곡` : "추천 곡";
+  const cd = box.querySelector(".cd");
+  cd.textContent = `${sec}초 뒤 담습니다`;
+  cd.style.color = "var(--accent)";
 
-  const ul = card.querySelector("#suggList");
-  list.forEach((t) => {
-    const li = document.createElement("li");
-    li.append(artEl(t.artworkUrl, null, t.title));
-    const m = document.createElement("div"); m.className = "meta";
-    m.innerHTML = `<div class="ti"></div><div class="ar"></div>`;
-    m.querySelector(".ti").textContent = t.title;
-    m.querySelector(".ar").textContent = `${t.artist} · ${mmss(t.durationMs)}`;
-    li.append(m);
-    ul.append(li);
-  });
+  const ul = box.querySelector("ul");
+  list.forEach((t) => ul.append(trackRow(t, {})));
 
-  slot.replaceChildren(card);
+  slot.replaceChildren(box, node(`<div class="hr"></div>`));
   $("bTakeNow").onclick = () => { send({ type:"mood.accept", seatId:mySeat }); toast("담았습니다"); };
   $("bNoThanks").onclick = () => { send({ type:"mood.dismiss", seatId:mySeat }); toast("이번에는 넘어갑니다"); };
 }
@@ -598,64 +748,55 @@ function renderResults(msg) {
   const canAdd = state && (state.mode === "CHARGING_LOUNGE" || state.turnSeatId === mySeat);
 
   if (!results.length) {
-    ul.innerHTML = `<li><span class="none">결과가 없습니다. 다른 검색어로 해보세요.</span></li>`;
+    ul.innerHTML = `<li style="border:0"><span class="empty">결과가 없습니다. 다른 검색어로 해보세요.</span></li>`;
     $("srcNote").textContent = "";
     return;
   }
-  results.forEach((t, i) => {
-    const li = document.createElement("li");
-    li.append(artEl(t.artworkUrl, null, t.title));
-    const m = document.createElement("div"); m.className = "meta";
-    m.innerHTML = `<div class="ti"></div><div class="ar"></div>`;
-    m.querySelector(".ti").textContent = t.title;
-    m.querySelector(".ar").textContent = `${t.artist} · ${mmss(t.durationMs)}`;
-    li.append(m);
-    const b = document.createElement("button");
-    b.className = "sm primary"; b.textContent = "추가"; b.disabled = !canAdd;
-    b.onclick = () => {
-      // 낙관적 업데이트를 하지 않습니다. 다음 state.sync 로만 반영됩니다.
-      // 커버 주소를 같이 넘깁니다. 차량 화면이 다시 찾지 않도록 폰이 들고 가는 값입니다.
-      send({ type:"queue.add", seatId:mySeat, title:t.title, artist:t.artist,
-             durationMs:t.durationMs, externalId:t.externalId, artworkUrl:t.artworkUrl });
-    };
-    li.append(b);
-    ul.append(li);
+  results.forEach((t) => {
+    ul.append(trackRow(t, { tail: () => {
+      const b = document.createElement("button");
+      b.className = "sm primary"; b.textContent = "추가"; b.disabled = !canAdd;
+      b.onclick = () => {
+        // 낙관적 업데이트를 하지 않습니다. 다음 state.sync 로만 반영됩니다.
+        // 커버 주소를 같이 넘깁니다. 차량 화면이 다시 찾지 않도록 폰이 들고 가는 값입니다.
+        send({ type:"queue.add", seatId:mySeat, title:t.title, artist:t.artist,
+               durationMs:t.durationMs, externalId:t.externalId, artworkUrl:t.artworkUrl });
+      };
+      return b;
+    } }));
   });
-  $("srcNote").textContent = msg && msg.source === "catalog" ? "" :
-    msg && msg.source ? `검색 소스: ${msg.source}` : "";
+  $("srcNote").textContent =
+    msg && msg.source && msg.source !== "catalog" ? `검색 소스: ${msg.source}` : "";
 }
 
 function renderAlbum(a) {
   const el = $("album");
   const who = (a.seats || []).map((s) => s.nickname).filter(Boolean);
-  el.innerHTML = `<div class="label">드라이브 앨범</div>
-    <div class="hd">${mins(a.durationMs)}분 · 함께 들은 ${(a.tracks||[]).length}곡</div>
-    <div class="sub">${who.length ? who.join(" · ") : "이번 이동의 기록"}</div><ul></ul>`;
+  el.innerHTML = `<div class="lbl">드라이브 앨범</div>
+    <div style="font-size:17px;font-weight:600;letter-spacing:-.01em"></div>
+    <div style="font-size:12.5px;color:var(--sub);margin-top:6px"></div><ul></ul>`;
+  el.children[1].textContent = `${mins(a.durationMs)}분 · 함께 들은 ${(a.tracks || []).length}곡`;
+  el.children[2].textContent = who.length ? who.join(", ") : "이번 이동의 기록";
   const ul = el.querySelector("ul");
-  (a.tracks || []).forEach((t) => {
-    const li = document.createElement("li");
-    const m = document.createElement("div"); m.className = "meta";
-    m.innerHTML = `<div class="ti"></div><div class="ar"></div>`;
-    m.querySelector(".ti").textContent = t.title;
-    m.querySelector(".ar").textContent = t.artist;
-    li.append(m);
-    const p = document.createElement("span"); p.className = "pill";
-    p.textContent = label(t.requestedBySeat); li.append(p);
-    ul.append(li);
-  });
-  el.style.display = "block";
+  (a.tracks || []).forEach((t) => ul.append(trackRow(t, { by:true })));
+  el.hidden = false;
   el.scrollIntoView({ behavior:"smooth", block:"center" });
 }
 
 /* ---------- 이벤트 ---------- */
+$("nick").value = nickname;
+$("bSkipIcon").append(node(ICON.next));
 $("bSearch").onclick = () => {
   const q = $("q").value.trim();
   if (!q) return;
   send({ type:"search.query", q, limit:12 });
 };
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { $("q").blur(); $("bSearch").click(); } });
-$("bLike").onclick = () => { send({ type:"reaction.like", seatId:mySeat }); toast("♥ 전달했습니다"); };
-$("bSkip").onclick = () => send({ type:"vote.skip", seatId:mySeat });
+$("bLike").onclick = () => { send({ type:"reaction.like", seatId:mySeat }); toast("좋아요를 전달했습니다"); };
+const skip = () => send({ type:"vote.skip", seatId:mySeat });
+$("bSkip").onclick = skip;
+$("bSkipIcon").onclick = skip;
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => render());
 
 connect();
 </script>
