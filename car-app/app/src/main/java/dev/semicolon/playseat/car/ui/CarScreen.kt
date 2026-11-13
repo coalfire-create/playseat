@@ -77,11 +77,19 @@ fun CarScreen(
     val driving = state.driveState == DriveState.DRIVING.name
     val mood = Mood.byId(state.moodId)
 
-    // 분위기를 배경에 섞습니다. 아주 옅게 — 이 화면은 글자를 읽는 화면이고,
-    // 색이 진해지면 Pleos 시스템 UI 와 따로 노는 앱이 됩니다. 밤에는 바탕이
-    // 어두워 같은 양으로는 보이지 않으므로 조금 더 섞습니다.
+    // 분위기를 배경에 섞습니다.
+    //
+    // 정차 중에는 아주 옅게 — 목록과 글자를 읽는 화면이고, 색이 진해지면
+    // Pleos 시스템 UI 와 따로 노는 앱이 됩니다. 주행 중에는 반대입니다.
+    // 운전자는 화면을 읽지 않고 흘깃 봅니다. 그때는 색이 곧 정보이므로
+    // 눈에 보일 만큼 섞습니다. 밤에는 바탕이 어두워 더 섞어야 같은 양으로 보입니다.
+    val night = p === NightPalette
     val tint = mood?.let {
-        lerp(p.bg, Color(it.argb), if (p === NightPalette) 0.12f else 0.055f)
+        val amount = when {
+            driving -> if (night) 0.24f else 0.14f
+            else -> if (night) 0.12f else 0.055f
+        }
+        lerp(p.bg, Color(it.argb), amount)
     } ?: p.bg
 
     Column(Modifier.fillMaxSize().background(tint)) {
@@ -234,13 +242,44 @@ private fun SuggestionList(state: SessionState) {
     }
 }
 
+/**
+ * 주행 중 분위기 표시.
+ *
+ * 머리말의 작은 칩은 정차 중에나 읽힙니다. 주행 중에는 운전자가 화면을
+ * 흘깃 보기 때문에, 판정 결과가 글자 크기와 색면으로 한 번에 들어와야 합니다.
+ * 근거를 같이 두는 이유는 늘 같습니다 — 틀렸을 때 사람이 납득하거나 고칠 수
+ * 있어야 합니다.
+ */
+@Composable
+private fun MoodBanner(state: SessionState) {
+    val p = pal
+    val mood = Mood.byId(state.moodId) ?: return
+    val c = Color(mood.argb)
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 30.dp)
+            .background(c.copy(alpha = if (p === NightPalette) 0.22f else 0.13f))
+            .height(96.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(10.dp).fillMaxHeight().background(c))
+        Spacer(Modifier.width(26.dp))
+        Box(Modifier.size(22.dp).clip(CircleShape).background(c))
+        Spacer(Modifier.width(18.dp))
+        Text(mood.label, fontSize = 34.sp, fontWeight = FontWeight.Bold, color = p.text)
+        state.moodReason?.let {
+            Spacer(Modifier.width(20.dp))
+            Text(it, fontSize = 25.sp, color = p.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
 @Composable
 private fun LoungeNotice() {
     val p = pal
     Column(Modifier.fillMaxWidth().background(p.cellActive).padding(28.dp)) {
-        Text("충전 라운지 모드", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = p.accent)
+        Text("충전 라운지", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = p.accent)
         Spacer(Modifier.height(7.dp))
-        Text("차례 없이 아무 좌석이나 바로 곡을 넣을 수 있습니다", fontSize = 20.sp, color = p.sub)
+        Text("정차해 있고 시간이 있습니다. 다음 구간의 플레이리스트를 함께 만드세요", fontSize = 20.sp, color = p.sub)
     }
 }
 
@@ -582,6 +621,7 @@ private fun DrivingView(
     // 화면이 1682dp 로 넓어서 그대로 왼쪽 정렬하면 오른쪽이 텅 빕니다.
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(Modifier.widthIn(max = 1060.dp).padding(horizontal = 40.dp)) {
+            MoodBanner(state)
             Text("지금 재생", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = p.text)
             Spacer(Modifier.height(26.dp))
 

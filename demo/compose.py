@@ -70,7 +70,8 @@ SEGMENTS = [
      "차 안이 조용한 채로 흘러가는 시간"),
     ("추천이 떴습니다", 0.5, 9.0,
      "그러면 차가 먼저 권합니다",
-     "지금 분위기에 맞는 다섯 곡과 20초"),
+     "지금 분위기에 맞는 다섯 곡과 20초",
+     "재생·큐가 12초 비면 → 허브에 분위기로 질의 → 20초 뒤 자동 담기"),
     ("그대로 담겼습니다", 0.5, 4.5,
      "멈추지 않으면 그대로 담깁니다",
      "폰에서 '괜찮아요' 를 누르면 담지 않습니다"),
@@ -85,13 +86,16 @@ SEGMENTS = [
      "운전자 화면은 '지금 곡 + 버튼 2개'. 검색·목록·키보드가 잠깁니다"),
     ("날씨 API가 아니라 와이퍼로 읽는다", 2.0, 6.8,
      "비 — 날씨 API가 아니라 와이퍼로",
-     "터널에서도 지하주차장에서도 맞습니다. 화면·폰·실내 조명이 같이 바뀝니다"),
+     "터널에서도 지하주차장에서도 맞습니다. 화면·폰·실내 조명이 같이 바뀝니다",
+     "Virtual Console 주입: 와이퍼 Low  →  판정: 비 오는 날  →  앰비언트 조명 #4C6E8F"),
     ("전조등이 켜지면 밤처럼", 2.0, 6.0,
      "터널 — 전조등이 켜지면 밤처럼",
-     "왜 그렇게 판정했는지 근거를 같이 보여 줍니다"),
+     "왜 그렇게 판정했는지 근거를 같이 보여 줍니다",
+     "주입: 전조등 LowBeam  →  판정: 밤 드라이브  →  앰비언트 조명 #3B4B7A"),
     ("지도 API 없이 조향 변동으로 지형을", 4.5, 6.5,
      "굽잇길 — 지도 API 없이 조향으로",
-     "최근 12초 조향 변동폭. 산길과 고속도로는 다릅니다"),
+     "최근 12초 조향 변동폭. 산길과 고속도로는 다릅니다",
+     "주입: 조향 ±75° 반복  →  변동폭 150° ≥ 55°  →  판정: 굽잇길"),
     ("정차하면 운전자 화면이 다시 열린다", 1.5, 5.5,
      "정차하면 운전자 화면이 다시 열립니다",
      "전체 큐·검색·좌석 현황이 돌아옵니다"),
@@ -163,7 +167,8 @@ def labels(w, h, items):
     return layer
 
 
-def caption(w, h, title, sub, x, y, big=46, small=27, rule=True):
+def caption(w, h, title, sub, x, y, big=46, small=27, rule=True, note=None):
+    """note 는 '무엇을 넣어 무엇이 나왔는가' 한 줄. 말만으로는 증거가 안 됩니다."""
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     if rule:
@@ -178,6 +183,10 @@ def caption(w, h, title, sub, x, y, big=46, small=27, rule=True):
         for line in sub.split("\n"):
             d.text((x + 2, yy), line, font=fs, fill=DIM + (255,))
             yy += int(small * 1.45)
+    if note:
+        yy += 10
+        fn = font(int(small * 0.92), 0)
+        d.text((x + 2, yy), note, font=fn, fill=ACCENT + (255,))
     return layer
 
 
@@ -242,13 +251,13 @@ def build(indir: Path, outdir: Path):
     print("2/6  기기 안에 넣기")
     W, H = 1920, 1080
     # 기기 아래 이름표까지 화면 안에 들어와야 합니다. 밑이 잘리면 바로 티가 납니다.
-    ch = 784
+    ch = 766
     cw = int(round(ch * CAR_CROP[0] / CAR_CROP[1] / 2) * 2)
-    ph = 784
+    ph = 766
     pw = int(round(ph * 390 / 844 / 2) * 2)
     gap = 92
     x0 = (W - (cw + gap + pw)) // 2
-    y0 = 180
+    y0 = 190
     car_box = (x0, y0, cw, ch)
     phone_box = (x0 + cw + gap, y0, pw, ph)
 
@@ -280,9 +289,11 @@ def build(indir: Path, outdir: Path):
     # 3. 장면별로 자르고 자막을 넣고 빼기
     print("3/6  장면과 자막")
     parts = []
-    for i, (needle, lead, dur, title, sub) in enumerate(SEGMENTS):
+    for i, seg_def in enumerate(SEGMENTS):
+        needle, lead, dur, title, sub = seg_def[:5]
+        note = seg_def[5] if len(seg_def) > 5 else None
         cap = work / f"cap{i:02d}.png"
-        caption(W, H, title, sub, x0, 56).save(cap)
+        caption(W, H, title, sub, x0, 40, note=note).save(cap)
         seg = work / f"seg{i:02d}.mp4"
         run("ffmpeg", "-v", "error", "-y", "-ss", f"{at(needle) + lead:.2f}", "-t", f"{dur}",
             "-i", str(stage), "-loop", "1", "-i", str(cap),
@@ -300,7 +311,9 @@ def build(indir: Path, outdir: Path):
     print("4/6  제목과 마무리")
     head_png, tail_png = work / "head.png", work / "tail.png"
     card(W, H, ["플레이시트"],
-         ["차에 타는 순간 모든 좌석이 DJ 부스가 된다",
+         ["차 안에서 음악을 조작할 수 있는 사람은,",
+          "조작해서는 안 되는 사람입니다",
+          "",
           "Pleos Connect 차량용 앱 · 팀 Semicolon"],
          "에뮬레이터 실제 구동 화면 · 편집 외에 가공하지 않았습니다", big=96).save(head_png)
     card(W, H, ["폰은 알 수 없는 것들"],

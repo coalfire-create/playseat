@@ -66,7 +66,8 @@
   /* ---------- 분위기 ----------
      이름만 띄우면 틀렸을 때 그냥 멍청한 기능입니다. 근거를 같이 보여 주면
      사람이 "아 그래서" 하고 넘어가거나 직접 고칩니다. 차량 MoodChip 과 같은 구성. */
-  .mood{display:flex;align-items:center;gap:9px;padding:13px 20px}
+  .mood{display:flex;align-items:center;gap:9px;padding:14px 20px;
+        border-left:4px solid transparent}
   .mood .dot{width:10px;height:10px;border-radius:50%;flex:none}
   .mood b{font-size:14.5px;font-weight:600}
   .mood span{font-size:13px;color:var(--sub);min-width:0;
@@ -557,6 +558,10 @@ function render() {
   if (state.moodLabel) {
     const c = MOOD_COLOR[state.moodId] || "#6E7B86";
     ms.innerHTML = `<div class="mood"><i class="dot"></i><b></b><span></span></div><div class="hr"></div>`;
+    const bar = ms.querySelector(".mood");
+    // 색면으로 깔아야 '바뀌었다' 가 보입니다. 글자만 바뀌면 아무도 눈치채지 못합니다.
+    bar.style.background = c + (darkMode() ? "2e" : "1f");
+    bar.style.borderLeftColor = c;
     ms.querySelector(".dot").style.background = c;
     ms.querySelector("b").textContent = state.moodLabel;
     ms.querySelector("span").textContent = state.moodReason || "";
@@ -585,8 +590,8 @@ function render() {
   const note = (cls, b, s) =>
     `<div class="note ${cls}"><b>${b}</b><span>${s}</span></div><div class="hr"></div>`;
   let html = "";
-  if (lounge) html += note("on", "충전 라운지 모드",
-    "차례 없이 아무 좌석이나 바로 곡을 넣을 수 있습니다");
+  if (lounge) html += note("on", "충전 라운지",
+    "정차해 있고 시간이 있습니다. 다음 구간의 플레이리스트를 함께 만드세요");
   if (state.landing) html += note("", "도착 5분 전 — 랜딩 구간",
     "곡이 끊기지 않게 마무리하는 구간입니다");
   if (driving && !state.landing) html += note("", "주행 중에는 선곡 조작이 이 폰에 있습니다",
