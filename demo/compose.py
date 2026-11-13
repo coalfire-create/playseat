@@ -24,6 +24,7 @@
 import argparse, json, shutil, subprocess, sys
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+import numpy as np
 
 FONT = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
 
@@ -163,17 +164,31 @@ def backdrop(w, h, boxes):
     return bg
 
 
-def chrome(w, h, devices):
-    """기기 베젤. 화면 자리는 뚫어 두고 그 둘레만 그립니다."""
-    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+def chrome(w, h, devices, ss=4):
+    """기기 베젤. 화면 자리는 뚫어 두고 그 둘레만 그립니다.
+
+    ImageDraw 는 안티앨리어싱이 없어 둥근 모서리가 계단으로 깨집니다. 4배로
+    그려서 줄입니다 — 베젤 안쪽의 둥근 선이 깨져 있으면 바로 '합성' 티가 납니다."""
+    layer = Image.new("RGBA", (w * ss, h * ss), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     for (x, y, sw, sh, bez, radius) in devices:
+        x, y, sw, sh, bez, radius = (v * ss for v in (x, y, sw, sh, bez, radius))
         out = [x - bez, y - bez, x + sw + bez, y + sh + bez]
         d.rounded_rectangle(out, radius=radius + bez, fill=BEZEL + (255,))
-        d.rounded_rectangle(out, radius=radius + bez, outline=EDGE + (255,), width=2)
+        d.rounded_rectangle(out, radius=radius + bez, outline=EDGE + (255,), width=2 * ss)
         # 화면 자리를 뚫습니다 (ImageDraw 는 알파를 그대로 덮어씁니다)
         d.rounded_rectangle([x, y, x + sw, y + sh], radius=radius, fill=(0, 0, 0, 0))
-    return layer
+    return layer.resize((w, h), Image.LANCZOS)
+
+
+def screen_mask(w, h, radius, ss=4):
+    """화면 영상의 모서리를 둥글게 깎는 마스크(흰색=보임).
+
+    베젤만 둥글게 그리면 화면 영상의 네모난 꼭짓점이 베젤 바깥으로 삐져나옵니다
+    (꼭짓점까지의 거리 r·√2 가 r+베젤두께보다 크므로). 영상 쪽을 깎아야 깨끗합니다."""
+    m = Image.new("L", (w * ss, h * ss), 0)
+    ImageDraw.Draw(m).rounded_rectangle([0, 0, w * ss - 1, h * ss - 1], radius=radius * ss, fill=255)
+    return m.resize((w, h), Image.LANCZOS)
 
 
 def labels(w, h, items):
@@ -228,7 +243,7 @@ def card(w, h, lines, sub=None, foot=None, big=86):
 
 
 # ── 문제 제기 그림과 카드 ────────────────────────────────────────────────
-def cabin_art(size, connected, scale=1.0):
+def cabin_art(size, connected, scale=1.0, light=False):
     """차 안을 위에서 본 그림. 좌석 넷과 각자의 폰, 그리고 차와 이어진 선.
 
     연결된 폰만 강조색이고 나머지는 흐립니다. 같은 그림을 '하나만 연결' 과
@@ -237,13 +252,19 @@ def cabin_art(size, connected, scale=1.0):
     im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     k = scale
+    # 밝은 배경(숏폼)에서는 흰 선·흰 폰, 어두운 배경(본편)에서는 강조색
+    EDGE_, ACC_, INK_, DIM_, FILL_, NODEINK_ = (
+        ((255, 255, 255, 150), (255, 255, 255, 255), (255, 255, 255, 255), (255, 255, 255, 170),
+         (255, 255, 255, 40), (37, 99, 235, 255))
+        if light else
+        (EDGE + (255,), ACCENT + (255,), INK + (255,), DIM + (255,), (30, 32, 38, 255), (12, 14, 18, 255)))
     # 차체
     body = [int(40 * k), int(30 * k), w - int(40 * k), h - int(30 * k)]
-    d.rounded_rectangle(body, radius=int(120 * k), outline=EDGE + (255,), width=max(2, int(3 * k)))
+    d.rounded_rectangle(body, radius=int(120 * k), outline=EDGE_, width=max(2, int(3 * k)))
     # 대시보드(스피커 노드)
     cx, top = w // 2, body[1] + int(70 * k)
     d.rounded_rectangle([cx - int(170 * k), top - int(14 * k), cx + int(170 * k), top + int(14 * k)],
-                        radius=int(14 * k), fill=EDGE + (255,))
+                        radius=int(14 * k), fill=EDGE_)
     node_r = int(26 * k)
     seats = {
         "운전석": (cx - int(150 * k), body[1] + int(170 * k)),
@@ -259,34 +280,34 @@ def cabin_art(size, connected, scale=1.0):
         px, py = x + sw // 2 - int(34 * k), y + sh // 2 - int(18 * k)
         if on:
             d.line([(px, py), (px, top + int(40 * k)), (cx, top + int(40 * k)), (cx, top)],
-                   fill=ACCENT + (255,), width=max(2, int(4 * k)), joint="curve")
+                   fill=ACC_, width=max(2, int(4 * k)), joint="curve")
     for name, (x, y) in seats.items():
         on = name in connected
         box = [x - sw // 2, y - sh // 2, x + sw // 2, y + sh // 2]
-        d.rounded_rectangle(box, radius=int(26 * k), fill=(30, 32, 38, 255),
-                            outline=(EDGE if not on else ACCENT) + (255,), width=max(2, int(3 * k)))
+        d.rounded_rectangle(box, radius=int(26 * k), fill=FILL_,
+                            outline=(EDGE_ if not on else ACC_), width=max(2, int(3 * k)))
         d.rounded_rectangle([x - int(60 * k), box[1] - int(10 * k), x + int(60 * k), box[1] + int(4 * k)],
-                            radius=int(6 * k), fill=EDGE + (255,))
+                            radius=int(6 * k), fill=EDGE_)
         d.text((x - d.textlength(name, font=fl) / 2, y - int(58 * k)), name, font=fl,
-               fill=(INK if on else DIM) + (255,))
+               fill=(INK_ if on else DIM_))
         # 폰
         px, py = x + sw // 2 - int(34 * k), y + sh // 2 - int(18 * k)
         pw, ph = int(38 * k), int(66 * k)
         pbox = [px - pw // 2, py - ph // 2, px + pw // 2, py + ph // 2]
         if on:
-            d.rounded_rectangle(pbox, radius=int(8 * k), fill=ACCENT + (255,))
+            d.rounded_rectangle(pbox, radius=int(8 * k), fill=ACC_)
         else:
-            d.rounded_rectangle(pbox, radius=int(8 * k), outline=DIM + (255,), width=max(2, int(3 * k)))
+            d.rounded_rectangle(pbox, radius=int(8 * k), outline=DIM_, width=max(2, int(3 * k)))
             d.line([(pbox[0] + int(9 * k), pbox[1] + int(22 * k)), (pbox[2] - int(9 * k), pbox[3] - int(22 * k))],
-                   fill=DIM + (255,), width=max(2, int(3 * k)))
+                   fill=DIM_, width=max(2, int(3 * k)))
             d.line([(pbox[2] - int(9 * k), pbox[1] + int(22 * k)), (pbox[0] + int(9 * k), pbox[3] - int(22 * k))],
-                   fill=DIM + (255,), width=max(2, int(3 * k)))
+                   fill=DIM_, width=max(2, int(3 * k)))
         lab = "연결됨" if on else "듣기만"
         d.text((x - d.textlength(lab, font=fs) / 2, y + int(8 * k)), lab, font=fs,
-               fill=(ACCENT if on else DIM) + (255,))
-    d.ellipse([cx - node_r, top - node_r, cx + node_r, top + node_r], fill=ACCENT + (255,))
+               fill=(ACC_ if on else DIM_))
+    d.ellipse([cx - node_r, top - node_r, cx + node_r, top + node_r], fill=ACC_)
     fn = font(int(28 * k), 2)
-    d.text((cx - d.textlength("♪", font=fn) / 2, top - int(19 * k)), "♪", font=fn, fill=(12, 14, 18, 255))
+    d.text((cx - d.textlength("♪", font=fn) / 2, top - int(19 * k)), "♪", font=fn, fill=NODEINK_)
     return im
 
 
@@ -420,6 +441,9 @@ def build(indir: Path, outdir: Path):
     labels(W, H, [(x0 + 2, y0 + ch + 34, "차량 디스플레이"),
                   (phone_box[0] + 2, y0 + ph + 34, "동승자 폰")]).save(label_png)
 
+    cmask, pmask = work / "cmask.png", work / "pmask.png"
+    screen_mask(cw, ch, 12).save(cmask)
+    screen_mask(pw, ph, 44).save(pmask)
     stage = work / "stage.mp4"
     if stage.exists():
         print("     (이미 있어 건너뜁니다)")
@@ -428,10 +452,11 @@ def build(indir: Path, outdir: Path):
         "-loop", "1", "-i", str(bg_png),
         "-i", str(indir / "car.mp4"), "-i", str(phone_mp4),
         "-i", str(chrome_png), "-i", str(label_png),
+        "-loop", "1", "-i", str(cmask), "-loop", "1", "-i", str(pmask),
         "-filter_complex",
         f"[1:v]crop={CAR_CROP[0]}:{CAR_CROP[1]}:{CAR_CROP[2]}:{CAR_CROP[3]},"
-        f"scale={cw}:{ch},fps=30,setsar=1[car];"
-        f"[2:v]scale={pw}:{ph},setsar=1[ph];"
+        f"scale={cw}:{ch},fps=30,setsar=1,format=rgba[car0];[car0][5:v]alphamerge[car];"
+        f"[2:v]scale={pw}:{ph},setsar=1,format=rgba[ph0];[ph0][6:v]alphamerge[ph];"
         f"[0:v][car]overlay={car_box[0]}:{car_box[1]}[a];"
         f"[a][ph]overlay={phone_box[0]}:{phone_box[1]}[b];"
         f"[b][3:v]overlay=0:0[c];[c][4:v]overlay=0:0[v]",
@@ -493,16 +518,16 @@ def build(indir: Path, outdir: Path):
         print(f"\n{p}  —  {probe(p):.0f}초 · {p.stat().st_size / 1048576:.1f} MB")
 
 
-def xfade_concat(clips, out):
+def xfade_concat(clips, out, xf=XF):
     """크로스 디졸브로 잇습니다. 툭툭 끊기면 '자른 티' 가 그대로 납니다."""
     args = ["ffmpeg", "-v", "error", "-y"]
     for path, _ in clips:
         args += ["-i", str(path)]
     chain, prev, elapsed = [], "0:v", clips[0][1]
     for i in range(1, len(clips)):
-        off = elapsed - XF
+        off = elapsed - xf
         tag = f"x{i}"
-        chain.append(f"[{prev}][{i}:v]xfade=transition=fade:duration={XF}:offset={off:.3f}[{tag}]")
+        chain.append(f"[{prev}][{i}:v]xfade=transition=fade:duration={xf}:offset={off:.3f}[{tag}]")
         prev = tag
         # xfade 출력 길이는 offset + 두 번째 입력 길이입니다. 겹친 만큼 줄어듭니다.
         elapsed = off + clips[i][1]
@@ -512,63 +537,191 @@ def xfade_concat(clips, out):
     run(*args)
 
 
+# ── 숏폼 ───────────────────────────────────────────────────────────────
+# 숏폼은 심사용 본편과 다른 물건입니다. 손안에서 엄지로 넘기다 멈춰야 하므로
+# 색이 세고, 글자가 크고, 음악이 있습니다. 본편의 어두운 톤을 그대로 쓰면 묻힙니다.
+def hexrgb(h):
+    h = h.lstrip("#"); return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+# 장면별 색. (왼쪽 위, 오른쪽 아래)
+REEL_PAL = {
+    "hook":  ("#1E40AF", "#7C3AED"),
+    "logo":  ("#2563EB", "#06B6D4"),
+    "seat":  ("#0EA5E9", "#6366F1"),
+    "shark": ("#F97316", "#EC4899"),
+    "phone": ("#7C3AED", "#2563EB"),
+    "vote":  ("#059669", "#0EA5E9"),
+    "drive": ("#F59E0B", "#EF4444"),
+    "rain":  ("#334155", "#2563EB"),
+    "end":   ("#111827", "#1D4ED8"),
+}
+
+# (문구, 여유, 길이, 큰 글자, 작은 글자, 색, 칩)
+REEL = [
+    ("좌석이 곧 입장권", 2.0, 4.3, "앉으면\n자동 입장", "좌석 착석 신호로 탑승자를 인식합니다", "seat", "초대 없음 · 세션 개설 없음"),
+    ("서아 → 괜찮아요", 1.4, 4.8, "뒷자리 7살,\n아기상어 투하", "차가 권한 곡을 거절하고 자기 곡을 넣습니다", "shark", "차례 없음 · 바로 재생"),
+    ("한 사람이 연달아 넣어도 막지 않습니다", 0.6, 3.2, "그리고\n멈추지 않습니다", "뽀로로, 또 아기상어", "shark", "아기상어 ×2"),
+    ("엄마 → ", 3.2, 5.9, "각자의 폰으로\n그냥 넣습니다", "운전자 폰을 건넬 일이 없습니다", "phone", "조수석 · 2열 좌 · 2열 우"),
+    ("지호 → 건너뛰기 1/2", -0.3, 5.4, "거슬리면\n투표로", "혼자서는 못 넘깁니다. 두 표면 넘어갑니다", "vote", "1/2 → 2/2 → 다음 곡"),
+    ("주행하면 조작 권한이 동승자 폰으로", 1.5, 4.3, "달리면\n운전석은 잠김", "선곡권은 뒷자리로 이사합니다", "drive", "운전자: 다음 곡 · 말하기"),
+    ("날씨 API가 아니라 와이퍼로 읽는다", 2.5, 4.3, "비는\n와이퍼가 안다", "날씨 API 없이 차의 신호로 분위기를 읽습니다", "rain", "화면 · 폰 · 실내 조명이 같이"),
+]
+REEL_HOOK = [
+    (["차에서 노래,", "누가 고르지?"], ["항상 운전석. 세 시간 내내."], 2.7, "one", "hook"),
+    (["바꿀 수 있는", "한 사람은 운전 중."], ["뒷자리: \"아빠, 노래 바꿔 줘\"  ×9"], 2.7, None, "hook"),
+]
+
+
+def vivid(w, h, pal, boxes=()):
+    """대각선 그러데이션 + 부드러운 빛 두 덩이. 평평한 단색이면 템플릿처럼 보입니다."""
+    c1, c2 = (hexrgb(x) for x in REEL_PAL[pal])
+    yy, xx = np.mgrid[0:h, 0:w]
+    t = ((xx / w) * 0.55 + (yy / h) * 0.45)[..., None]
+    arr = (np.array(c1) * (1 - t) + np.array(c2) * t).astype(np.uint8)
+    bg = Image.fromarray(arr, "RGB")
+    glow = Image.new("L", (w, h), 0)
+    gd = ImageDraw.Draw(glow)
+    gd.ellipse([-w * 0.2, -h * 0.05, w * 0.55, h * 0.35], fill=70)
+    gd.ellipse([w * 0.45, h * 0.55, w * 1.25, h * 1.05], fill=55)
+    glow = glow.filter(ImageFilter.GaussianBlur(160))
+    bg = Image.composite(Image.new("RGB", (w, h), (255, 255, 255)), bg, glow)
+    if boxes:
+        sh = Image.new("L", (w, h), 0)
+        sd = ImageDraw.Draw(sh)
+        for (x, y, bw, bh, r) in boxes:
+            sd.rounded_rectangle([x, y + 22, x + bw, y + bh + 34], radius=r, fill=170)
+        sh = sh.filter(ImageFilter.GaussianBlur(38))
+        bg = Image.composite(Image.new("RGB", (w, h), (0, 0, 0)), bg, sh)
+    return bg
+
+
+def chip(d, x, y, text, f):
+    """알약 모양 라벨. 흰 바탕에 진한 글자 — 그러데이션 위에서 제일 잘 읽힙니다."""
+    tw = d.textlength(text, font=f)
+    ph, pw = 22, 30
+    hgt = f.size + ph
+    d.rounded_rectangle([x, y, x + tw + pw * 2, y + hgt], radius=hgt // 2, fill=(255, 255, 255, 235))
+    d.text((x + pw, y + ph // 2 - 2), text, font=f, fill=(17, 24, 39, 255))
+    return hgt
+
+
+def reel_caption(w, h, big, small, label):
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    x, y = 72, 92
+    fb, fs, fc = font(88, 2), font(36, 0), font(30, 2)
+    for ln in big.split("\n"):
+        d.text((x, y), ln, font=fb, fill=(255, 255, 255, 255)); y += int(88 * 1.16)
+    y += 10
+    d.text((x + 2, y), small, font=fs, fill=(255, 255, 255, 205)); y += 36 + 22
+    if label:
+        chip(d, x, y, label, fc)
+    return layer
+
+
+def reel_card(work, name, w, h, lines, sub, dur, pal, art=None, big=96, foot=None, brand=False):
+    """숏폼 카드. motion_card 와 같은 움직임, 색만 셉니다."""
+    bg = vivid(w, h, pal)
+    fg = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(fg)
+    fb, fm, ff = font(big, 2), font(38, 0), font(27, 0)
+    x, y = 84, 300
+    if brand:
+        d.rectangle([x, y - 34, x + 60, y - 28], fill=(255, 255, 255, 255))
+    for ln in lines:
+        d.text((x, y), ln, font=fb, fill=(255, 255, 255, 255)); y += int(big * 1.2)
+    if sub:
+        y += 14
+        for ln in sub:
+            d.text((x + 2, y), ln, font=fm, fill=(255, 255, 255, 210)); y += 54
+    if art is not None:
+        conn = {"운전석"} if art == "one" else {"운전석", "조수석", "2열 좌", "2열 우"}
+        a = cabin_art((700, 700), conn, scale=1.0, light=True)
+        fg.alpha_composite(a, ((w - a.width) // 2, max(y + 50, 820)))
+    if foot:
+        d.text(((w - d.textlength(foot, font=ff)) / 2, h - 118), foot, font=ff, fill=(255, 255, 255, 220))
+    bgp, fgp = work / f"{name}_bg.png", work / f"{name}_fg.png"
+    bg.save(bgp); fg.save(fgp)
+    out = work / f"{name}.mp4"
+    run("ffmpeg", "-v", "error", "-y", "-loop", "1", "-i", str(bgp), "-loop", "1", "-i", str(fgp),
+        "-filter_complex",
+        f"[1:v]format=rgba,fade=t=in:st=0:d=0.4:alpha=1,"
+        f"fade=t=out:st={dur - 0.4:.2f}:d=0.3:alpha=1[fg];"
+        f"[0:v][fg]overlay=0:'30*pow(1-min(1,t/0.6),2)':shortest=1,fps=30,format=yuv420p[v]",
+        "-map", "[v]", "-t", f"{dur}", "-c:v", "libx264", "-preset", "medium", "-crf", "18", str(out))
+    return out
+
+
 def build_short(indir, work, phone_mp4, at, out):
     SW, SH = 1080, 1920
-    # 세로 화면은 손안에서 봅니다. 작게 넣으면 뭘 보여 주는지 안 보입니다.
-    # 큰 글자가 두 줄일 때 설명줄까지 들어갈 자리를 위에 비워 둬야 합니다.
-    ch = 680
-    cw = int(round(ch * CAR_CROP[0] / CAR_CROP[1] / 2) * 2)
-    ph = 718
+    # 차량 화면은 폭을 꽉 채우고, 폰은 그 아래 — 둘 다 손안에서 읽혀야 합니다.
+    cw = 1000
+    ch = int(round(cw * CAR_CROP[1] / CAR_CROP[0] / 2) * 2)
+    ph = 760
     pw = int(round(ph * 390 / 844 / 2) * 2)
-    car_box = ((SW - cw) // 2, 384, cw, ch)
-    phone_box = ((SW - pw) // 2, 1118, pw, ph)
-
-    bg = work / "sbg.png"
-    backdrop(SW, SH, [(car_box[0] - 14, car_box[1] - 14, cw + 28, ch + 28, 24),
-                      (phone_box[0] - 12, phone_box[1] - 12, pw + 24, ph + 24, 52)]).save(bg)
-    chm = work / "schrome.png"
-    chrome(SW, SH, [(*car_box, 14, 12), (*phone_box, 12, 42)]).save(chm)
+    car_box = ((SW - cw) // 2, 372, cw, ch)
+    phone_box = ((SW - pw) // 2, 372 + ch + 44, pw, ph)
+    boxes = [(car_box[0] - 12, car_box[1] - 12, cw + 24, ch + 24, 22),
+             (phone_box[0] - 12, phone_box[1] - 12, pw + 24, ph + 24, 54)]
+    chm = work / "rchrome.png"
+    chrome(SW, SH, [(*car_box, 12, 12), (*phone_box, 12, 44)]).save(chm)
+    rcm, rpm = work / "rcmask.png", work / "rpmask.png"
+    screen_mask(cw, ch, 12).save(rcm)
+    screen_mask(pw, ph, 44).save(rpm)
 
     clips = []
-    for i, (lines, sub, dur, art) in enumerate(SHORT_HOOK):
-        clips.append((motion_card(work, f"sh{i}", SW, SH, lines, sub, dur, art=art, vertical=True), dur))
-    clips.append((motion_card(work, "shlogo", SW, SH, ["플레이시트"],
-                              ["모든 좌석에 선곡권을.", "각자의 폰으로."], 2.6,
-                              art="all", big=96, brand=True, vertical=True), 2.6))
-    for i, (needle, lead, dur, big, small) in enumerate(SHORT):
-        cap = work / f"scap{i}.png"
-        caption(SW, SH, big, small, 62, 104, big=80, small=35).save(cap)
-        seg = work / f"short{i}.mp4"
+    for i, (lines, sub, dur, art, pal) in enumerate(REEL_HOOK):
+        clips.append((reel_card(work, f"rh{i}", SW, SH, lines, sub, dur, pal, art=art), dur))
+    clips.append((reel_card(work, "rlogo", SW, SH, ["플레이시트"],
+                            ["모든 좌석에 선곡권을.", "각자의 폰으로."], 2.6, "logo",
+                            art="all", big=104, brand=True), 2.6))
+    for i, (needle, lead, dur, big, small, pal, label) in enumerate(REEL):
+        bg = work / f"rbg{i}.png"
+        vivid(SW, SH, pal, boxes).save(bg)
+        cap = work / f"rcap{i}.png"
+        reel_caption(SW, SH, big, small, label).save(cap)
+        seg = work / f"reel{i}.mp4"
         t = at(needle) + lead
         run("ffmpeg", "-v", "error", "-y",
             "-loop", "1", "-i", str(bg),
             "-ss", f"{t:.2f}", "-t", f"{dur}", "-i", str(indir / "car.mp4"),
             "-ss", f"{t:.2f}", "-t", f"{dur}", "-i", str(phone_mp4),
             "-i", str(chm), "-loop", "1", "-i", str(cap),
+            "-loop", "1", "-i", str(rcm), "-loop", "1", "-i", str(rpm),
             "-filter_complex",
             f"[1:v]crop={CAR_CROP[0]}:{CAR_CROP[1]}:{CAR_CROP[2]}:{CAR_CROP[3]},"
-            f"scale={cw}:{ch},fps=30,setsar=1[car];"
-            f"[2:v]scale={pw}:{ph},setsar=1[ph];"
+            f"scale={cw}:{ch},fps=30,setsar=1,format=rgba[car0];[car0][5:v]alphamerge[car];"
+            f"[2:v]scale={pw}:{ph},setsar=1,format=rgba[ph0];[ph0][6:v]alphamerge[ph];"
             f"[0:v][car]overlay={car_box[0]}:{car_box[1]}[a];"
             f"[a][ph]overlay={phone_box[0]}:{phone_box[1]}[b];"
             f"[b][3:v]overlay=0:0[c];"
-            f"[4:v]format=rgba,fade=t=in:st=0.1:d=0.35:alpha=1,"
-            f"fade=t=out:st={dur - 0.6:.2f}:d=0.35:alpha=1[cap];"
-            f"[c][cap]overlay=0:0:shortest=1[v]",
+            f"[4:v]format=rgba,fade=t=in:st=0.05:d=0.3:alpha=1,"
+            f"fade=t=out:st={dur - 0.45:.2f}:d=0.3:alpha=1[cap];"
+            f"[c][cap]overlay=0:'22*pow(1-min(1,t/0.5),2)':shortest=1[v]",
             "-map", "[v]", "-t", f"{dur}", "-pix_fmt", "yuv420p", "-c:v", "libx264",
             "-preset", "medium", "-crf", "19", "-r", "30", str(seg))
         clips.append((seg, dur))
 
-    end_png = work / "send.png"
-    card(SW, SH, ["플레이시트"],
-         ["차의 모든 좌석이", "DJ 부스가 된다"],
-         "github.com/coalfire-create/playseat", big=84).save(end_png)
-    end = work / "send.mp4"
-    run("ffmpeg", "-v", "error", "-y", "-loop", "1", "-t", "3.2", "-i", str(end_png),
-        "-vf", "fps=30,fade=t=in:st=0:d=0.5,format=yuv420p",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "19", str(end))
-    clips.append((end, 3.2))
-    xfade_concat(clips, out)
+    end_dur = 3.4
+    clips.append((reel_card(work, "rend", SW, SH, ["플레이시트"],
+                            ["차의 모든 좌석이", "DJ 부스가 된다"], end_dur, "end",
+                            big=104, brand=True, foot="github.com/coalfire-create/playseat"), end_dur))
+
+    silent = work / "reel_silent.mp4"
+    xfade_concat(clips, silent, xf=0.28)
+
+    # 음악. demo/music.py 가 만든 우리 곡입니다 — 남의 곡은 올릴 수 없습니다.
+    music = Path(__file__).parent / "assets" / "reel_music.wav"
+    if not music.exists():
+        run(sys.executable, str(Path(__file__).parent / "music.py"), "--sec", "48", "--out", str(music))
+    total = probe(silent)
+    run("ffmpeg", "-v", "error", "-y", "-i", str(silent), "-i", str(music),
+        "-filter_complex",
+        f"[1:a]atrim=0:{total:.2f},afade=t=out:st={total - 1.6:.2f}:d=1.6,"
+        f"loudnorm=I=-15:TP=-1.5:LRA=9[a]",
+        "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart", "-shortest", str(out))
 
 
 if __name__ == "__main__":
