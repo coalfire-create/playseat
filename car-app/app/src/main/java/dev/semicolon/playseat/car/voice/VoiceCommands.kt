@@ -9,14 +9,12 @@ package dev.semicolon.playseat.car.voice
  */
 object VoiceCommands {
 
-    enum class Command { NEXT_TRACK, PASS_TURN, LIKE, UNKNOWN }
+    enum class Command { NEXT_TRACK, LIKE, UNKNOWN }
 
     fun parse(raw: String?): Command {
         val t = raw?.replace(" ", "")?.lowercase() ?: return Command.UNKNOWN
         if (t.isEmpty()) return Command.UNKNOWN
 
-        // "내 차례 넘겨" 는 '넘겨' 를 포함하므로 차례 판정을 먼저 합니다.
-        if (t.contains("차례")) return Command.PASS_TURN
         if (t.contains("다음") || t.contains("스킵") || t.contains("넘겨") || t.contains("넘어가"))
             return Command.NEXT_TRACK
         if (t.contains("좋아") || t.contains("저장") || t.contains("찜"))

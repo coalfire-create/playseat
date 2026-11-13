@@ -19,7 +19,6 @@ object SeatId {
     const val R2R = "R2R"
 
     /** 턴이 돌아가는 순서. 운전석을 마지막에 둡니다. */
-    val TURN_ORDER = listOf(R1R, R2L, R2C, R2R, R1L)
     val ALL = listOf(R1L, R1R, R2L, R2C, R2R)
 }
 

@@ -70,7 +70,6 @@ fun CarScreen(
     voiceStatus: String?,
     canListen: Boolean,
     onDriverSkip: () -> Unit,
-    onDriverPassTurn: () -> Unit,
     onListen: () -> Unit,
     debug: DebugActions? = null,
 ) {
@@ -99,7 +98,7 @@ fun CarScreen(
                 // 차가 단을 꽉 채우고, 남는 가로는 대기열이 가져갑니다.
                 Column(Modifier.weight(0.52f)) {
                     if (state.mode == SessionMode.CHARGING_LOUNGE) { LoungeNotice(); HLine() }
-                    SeatMap(state, onDriverPassTurn, Modifier.weight(1f))
+                    SeatMap(state, Modifier.weight(1f))
                     HLine()
                     JoinRow(state, joinUrl)
                 }
@@ -254,16 +253,14 @@ private fun LoungeNotice() {
  * 같은 방식이고, 표로 늘어놓는 것보다 "어느 자리인가" 가 형태로 바로 읽힙니다.
  * 앞이 위쪽입니다.
  *
- * 좌석 안에는 이름과 사람만 둡니다. 남은 시간 같은 숫자를 넣으면
- * 좁은 칸에 글자가 몰려 멀리서 읽을 수 없습니다. 지금 차례는
- * 테두리와 아래 띠로 알리고, 자세한 건 바로 아래 선곡 순서 줄이 말합니다.
+ * 좌석 안에는 이름과 사람만 둡니다. 숫자를 더 넣으면 좁은 칸에 글자가 몰려
+ * 멀리서 읽을 수 없습니다. 색은 **지금 나오는 곡을 고른 자리** 하나에만 씁니다 —
+ * 차 안에서 "이거 누가 틀었어?" 는 가장 자주 나오는 질문이고, 화면이 먼저 답합니다.
  */
 @Composable
-private fun SeatMap(state: SessionState, onPassTurn: () -> Unit, modifier: Modifier) {
+private fun SeatMap(state: SessionState, modifier: Modifier) {
     val p = pal
-    val lounge = state.mode == SessionMode.CHARGING_LOUNGE
-    // 선곡이 도는 순서. 좌석 위 번호로 보여 주므로 따로 줄을 두지 않습니다.
-    val order = SeatId.TURN_ORDER.filter { id -> state.seats.any { it.seatId == id && it.occupied } }
+    val aboard = state.seats.count { it.occupied }
 
     Column(modifier.fillMaxWidth()) {
         Row(
@@ -274,20 +271,12 @@ private fun SeatMap(state: SessionState, onPassTurn: () -> Unit, modifier: Modif
             Spacer(Modifier.width(18.dp))
             Text(
                 when {
-                    lounge -> "차례 없이 모두 바로 추가"
-                    order.isEmpty() -> "탑승을 기다리고 있습니다"
-                    else -> "번호 순으로 돌아갑니다"
+                    aboard == 0 -> "탑승을 기다리고 있습니다"
+                    else -> "앉은 사람은 누구나 바로 넣습니다"
                 },
                 fontSize = 20.sp, color = p.sub, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.weight(1f))
-            // 운전자는 헤드유닛을 길게 보면 안 되므로 자기 차례를 한 번에 넘깁니다.
-            // 엔진도 운전석 차례일 때만 이 요청을 받습니다(SessionEngine.driverPassTurn).
-            if (!lounge && state.turnSeatId == SeatId.R1L) {
-                TextButton(onPassTurn) {
-                    Text("내 차례 넘기기", fontSize = 21.sp, color = p.accent)
-                }
-            }
         }
 
         // 차는 세로·가로 중 먼저 차는 쪽에 맞춰 최대 크기로 키웁니다.
@@ -298,12 +287,12 @@ private fun SeatMap(state: SessionState, onPassTurn: () -> Unit, modifier: Modif
             Box(Modifier.align(Alignment.Center).size(w, h)) {
                 CarTopView(Modifier.matchParentSize(), line = p.line, glass = p.glass)
 
-                SeatSpot(state, SeatId.R1L, order, w * 0.135f, h * 0.255f, w * 0.29f, h * 0.215f)
-                SeatSpot(state, SeatId.R1R, order, w * 0.575f, h * 0.255f, w * 0.29f, h * 0.215f)
+                SeatSpot(state, SeatId.R1L, w * 0.135f, h * 0.255f, w * 0.29f, h * 0.215f)
+                SeatSpot(state, SeatId.R1R, w * 0.575f, h * 0.255f, w * 0.29f, h * 0.215f)
 
-                SeatSpot(state, SeatId.R2L, order, w * 0.115f, h * 0.555f, w * 0.245f, h * 0.215f)
-                SeatSpot(state, SeatId.R2C, order, w * 0.3775f, h * 0.555f, w * 0.245f, h * 0.215f)
-                SeatSpot(state, SeatId.R2R, order, w * 0.64f, h * 0.555f, w * 0.245f, h * 0.215f)
+                SeatSpot(state, SeatId.R2L, w * 0.115f, h * 0.555f, w * 0.245f, h * 0.215f)
+                SeatSpot(state, SeatId.R2C, w * 0.3775f, h * 0.555f, w * 0.245f, h * 0.215f)
+                SeatSpot(state, SeatId.R2R, w * 0.64f, h * 0.555f, w * 0.245f, h * 0.215f)
             }
         }
     }
@@ -314,17 +303,14 @@ private fun SeatMap(state: SessionState, onPassTurn: () -> Unit, modifier: Modif
 private fun SeatSpot(
     state: SessionState,
     seatId: String,
-    order: List<String>,
     x: Dp, y: Dp, w: Dp, h: Dp,
 ) {
     val p = pal
     val seat: SeatDto? = state.seats.firstOrNull { it.seatId == seatId }
     val occupied = seat?.occupied == true
-    val lounge = state.mode == SessionMode.CHARGING_LOUNGE
-    val isTurn = state.turnSeatId == seatId && !lounge
     val nickname = seat?.nickname
-    // 선곡 순서. 라운지에서는 차례가 없으므로 번호도 달지 않습니다.
-    val turnNo = if (lounge) -1 else order.indexOf(seatId)
+    // 지금 나오는 곡을 고른 자리. 화면에서 색을 쓰는 유일한 곳입니다.
+    val isPicker = state.nowPlaying?.requestedBySeat == seatId
 
     // 위는 등받이, 아래는 쿠션. 같은 반지름의 사각형이면 그냥 버튼으로 읽힙니다.
     val shape = RoundedCornerShape(
@@ -337,7 +323,7 @@ private fun SeatSpot(
             Modifier.align(Alignment.CenterHorizontally).fillMaxWidth(0.44f).height(h * 0.06f)
                 .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp))
                 .background(
-                    if (isTurn) p.accent
+                    if (isPicker) p.accent
                     else if (occupied) p.sub.copy(alpha = 0.55f)
                     else p.line
                 )
@@ -349,14 +335,14 @@ private fun SeatSpot(
                 // 둘 다 회색이면 타고 있는지 아닌지가 구분되지 않습니다.
                 .background(
                     when {
-                        isTurn -> p.accent.copy(alpha = 0.12f)
+                        isPicker -> p.accent.copy(alpha = 0.12f)
                         occupied -> p.cell
                         else -> Color.Transparent
                     }
                 )
                 .border(
-                    width = if (isTurn) 2.dp else 1.dp,
-                    color = if (isTurn) p.accent else p.line,
+                    width = if (isPicker) 2.dp else 1.dp,
+                    color = if (isPicker) p.accent else p.line,
                     shape = shape,
                 ),
             contentAlignment = Alignment.Center,
@@ -375,38 +361,16 @@ private fun SeatSpot(
                         else -> "대기"
                     },
                     fontSize = 19.sp,
-                    color = if (isTurn) p.accent else p.sub,
+                    color = if (isPicker) p.accent else p.sub,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            // 몇 번째로 고르는 자리인지. 좌석 위에 바로 붙어 있으면
-            // 따로 '선곡 순서' 줄을 두고 좌석 이름을 다시 쓸 필요가 없습니다.
-            if (turnNo >= 0) {
+            // 지금 나오는 곡을 고른 자리에만 띠를 답니다.
+            if (isPicker) {
                 Box(
-                    Modifier.align(Alignment.TopStart).padding(9.dp).size(30.dp)
-                        .background(if (isTurn) p.accent else Color.Transparent, CircleShape)
-                        .border(1.dp, if (isTurn) p.accent else p.line, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        "${turnNo + 1}", fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                        color = if (isTurn) Color.White else p.sub,
-                    )
-                }
-            }
-            // 남은 시간은 좌석 아래를 가로지르는 띠로. 숫자보다 길이가 빨리 읽힙니다.
-            val left = state.turnRemainingMs
-            if (isTurn && left != null) {
-                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp)) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(
-                                (left.toFloat() / state.turnDeadlineMs.coerceAtLeast(1))
-                                    .coerceIn(0f, 1f)
-                            )
-                            .fillMaxHeight().background(p.accent)
-                    )
-                }
+                    Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp)
+                        .background(p.accent)
+                )
             }
         }
     }
@@ -698,19 +662,18 @@ private fun DrivingView(
                     )
                     Spacer(Modifier.height(7.dp))
                     Text(
-                        "운전자는 음성으로 참여하세요 — \"다음 곡\", \"내 차례 넘겨\", \"이 노래 좋아\"",
+                        "운전자는 음성으로 참여하세요 — \"다음 곡\", \"이 노래 좋아\"",
                         fontSize = 20.sp, color = p.sub,
                     )
                 }
             }
 
-            state.turnSeatId?.let {
+            state.queue.firstOrNull()?.let { next ->
                 Spacer(Modifier.height(22.dp))
                 Text(
-                    state.turnRemainingMs
-                        ?.let { ms -> "다음 선곡 차례 · ${label(it)} · ${ms / 1000}초" }
-                        ?: "다음 선곡 차례 · ${label(it)}",
+                    "다음 곡 · ${next.title} — ${label(next.requestedBySeat)} 선곡",
                     color = p.sub, fontSize = 21.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
         }

@@ -9,152 +9,194 @@
     python3 demo/compose.py --in recording --out 영상
 
 만드는 것
-    시연영상_플레이시트.mp4        1920x1080 · 약 2분 · 심사 제출용
-    숏폼_플레이시트.mp4            1080x1920 · 약 35초 · 선택 제출용
+    시연영상_플레이시트.mp4        1920x1080 · 심사 제출용
+    숏폼_플레이시트.mp4            1080x1920 · 세로
+
+화면을 그냥 얹지 않고 **기기 안에 넣습니다.** 베젤·둥근 모서리·그림자가 없으면
+떠 있는 사각형 두 개로 보이고, 그 순간 '화면 녹화를 붙인 것' 이 됩니다.
+장면은 겹쳐 넘기고(크로스 디졸브) 자막은 들어오고 나갈 때 흐려집니다.
 
 필요한 것: ffmpeg, Python Pillow.
 자막은 Pillow 로 PNG 를 만들어 얹습니다 — macOS 의 ffmpeg 에는 drawtext 가
 빠져 있는 경우가 많아 글자를 ffmpeg 에 맡기지 않습니다.
 """
 
-import argparse, json, os, shutil, subprocess, sys
+import argparse, json, shutil, subprocess, sys
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 FONT = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
-BG = (18, 18, 20)
-FG = (255, 255, 255)
-DIM = (150, 152, 158)
-ACCENT = (90, 160, 255)
 
-# 에뮬레이터 전체 화면에서 앱이 차지하는 영역
-CAR_CROP = (1688, 1210, 856, 88)
-LEAD = 2.5          # screenrecord 가 실제로 물리기까지의 여유 (record.mjs 와 같은 값)
+INK = (248, 249, 251)
+DIM = (142, 146, 156)
+ACCENT = (96, 165, 250)
+BEZEL = (24, 25, 29)
+EDGE = (56, 58, 66)
+
+CAR_CROP = (1688, 1210, 856, 88)   # 에뮬레이터 전체 화면 중 앱 영역
+LEAD = 2.5                          # record.mjs 와 같은 값
+XF = 0.45                           # 장면 사이 겹침(초)
 
 
 def font(size, weight=0):
     return ImageFont.truetype(FONT, size, index=weight)
 
 
-def run(*args, **kw):
-    subprocess.run(args, check=True,
-                   stdout=kw.get("out", subprocess.DEVNULL),
-                   stderr=subprocess.STDOUT)
+def run(*args):
+    subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+
+def probe(path):
+    return float(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True).stdout.strip())
 
 
 # ── 장면 ────────────────────────────────────────────────────────────────
-# (cues.json 에서 찾을 문구, 그 시각으로부터의 여유(초), 길이(초), 자막 제목, 자막 설명)
+# (cues.json 에서 찾을 문구, 여유(초), 길이(초), 자막 제목, 자막 설명)
 #
 # 여유를 두는 이유: 신호를 넣은 순간부터 차량 화면이 바뀌기까지 한 박자 걸립니다.
 # 장면 표시 시각에 딱 맞춰 자르면 자막은 '비' 인데 화면은 아직 이전 분위기입니다.
 # 굽잇길은 조향 변동이 쌓여야 판정되므로 여유가 더 깁니다.
 SEGMENTS = [
-    ("좌석이 곧 입장권", 0.5, 8.0,
+    ("좌석이 곧 입장권", 0.5, 7.9,
      "좌석이 곧 입장권",
      "착석 신호로 탑승자를 자동 인식합니다. 초대도, 세션 개설도 없습니다"),
     ("최초 1회 QR", 0.5, 5.4,
      "최초 1회만 QR",
      "다음부터는 타기만 하면 자동으로 연결됩니다"),
     ("아무도 안 넣으면 차가 먼저 권한다", 1.0, 6.0,
-     "운전석 차례 — 큐가 비어 있습니다",
-     "운전자는 폰으로 곡을 넣지 않습니다. 음성으로만 참여합니다"),
-    ("추천이 떴습니다", 0.5, 8.5,
-     "아무도 안 넣으면 차가 먼저 권한다",
-     "지금 분위기에 맞는 5곡과 20초 카운트다운"),
-    ("그대로 담겼습니다", 0.5, 4.0,
+     "아직 아무도 곡을 넣지 않았습니다",
+     "차 안이 조용한 채로 흘러가는 시간"),
+    ("추천이 떴습니다", 0.5, 9.0,
+     "그러면 차가 먼저 권합니다",
+     "지금 분위기에 맞는 다섯 곡과 20초"),
+    ("그대로 담겼습니다", 0.5, 4.5,
      "멈추지 않으면 그대로 담깁니다",
-     "폰에서 '괜찮아요' 를 누르면 담지 않습니다 — 차례와 무관하게 누구든"),
-    ("엄마 →", 0.5, 7.0,
-     "선착순이 아니라 좌석 라운드로빈",
-     "자기 차례에 한 곡. 좌석 위 번호가 곧 순서입니다"),
-    ("서아 →", -4.0, 6.0,
-     "제한시간이 지나면 다음 좌석으로",
-     "한 사람이 연속으로 독점할 수 없습니다"),
+     "폰에서 '괜찮아요' 를 누르면 담지 않습니다"),
+    ("차례를 기다리지 않습니다", 0.5, 6.0,
+     "듣고 싶은 걸 그냥 넣습니다",
+     "차례도, 좌석별 상한도 없습니다"),
+    ("한 사람이 연달아 넣어도 막지 않습니다", 1.0, 5.0,
+     "한 사람이 연달아 넣어도 막지 않습니다",
+     "규칙보다 눈치가 먼저 작동합니다. 그래도 불만이면 스킵 투표가 있습니다"),
     ("주행하면 조작 권한이 동승자 폰으로", 1.5, 6.5,
-     "주행하면 조작 권한이 이사한다",
+     "주행하면 조작 권한이 이사합니다",
      "운전자 화면은 '지금 곡 + 버튼 2개'. 검색·목록·키보드가 잠깁니다"),
-    ("날씨 API가 아니라 와이퍼로 읽는다", 2.0, 7.0,
-     "비 — 날씨 API가 아니라 와이퍼로 읽는다",
+    ("날씨 API가 아니라 와이퍼로 읽는다", 2.0, 6.8,
+     "비 — 날씨 API가 아니라 와이퍼로",
      "터널에서도 지하주차장에서도 맞습니다. 화면·폰·실내 조명이 같이 바뀝니다"),
     ("전조등이 켜지면 밤처럼", 2.0, 6.0,
      "터널 — 전조등이 켜지면 밤처럼",
      "왜 그렇게 판정했는지 근거를 같이 보여 줍니다"),
-    ("지도 API 없이 조향 변동으로 지형을", 4.5, 6.8,
-     "굽잇길 — 지도 API 없이 조향 변동으로",
+    ("지도 API 없이 조향 변동으로 지형을", 4.5, 6.5,
+     "굽잇길 — 지도 API 없이 조향으로",
      "최근 12초 조향 변동폭. 산길과 고속도로는 다릅니다"),
     ("정차하면 운전자 화면이 다시 열린다", 1.5, 5.5,
-     "정차하면 운전자 화면이 다시 열린다",
+     "정차하면 운전자 화면이 다시 열립니다",
      "전체 큐·검색·좌석 현황이 돌아옵니다"),
-    ("충전 중에는 차례 없이 모두 추가", 2.5, 9.3,
-     "충전 라운지 — 차례 없이 모두",
-     "정차해 있고 시간이 있는 상태입니다"),
+    ("충전 중에는 라운지 모드", 2.5, 9.0,
+     "충전 — 정차해 있고 시간이 있는 상태",
+     "차 안에 머무는 20분이 하나의 모드가 됩니다"),
     ("도착하면 드라이브 앨범이 남는다", 1.0, 5.0,
      "도착하면 남는 것",
      "함께 들은 곡이 드라이브 앨범으로 각자 폰에 전달됩니다"),
 ]
 
-# 숏폼에 쓸 장면 (문구, 여유, 길이, 큰 글자, 작은 글자)
+# 숏폼 (문구, 여유, 길이, 큰 글자, 작은 글자)
 SHORT = [
-    ("최초 1회 QR", 2.0, 6.0, "타면 끝",
-     "착석 신호만으로\n탑승자를 자동 인식합니다"),
-    ("추천이 떴습니다", 0.5, 7.0, "아무도 안 넣으면\n차가 먼저 권한다",
-     "분위기에 맞는 5곡\n20초 뒤 자동으로 담김"),
-    ("주행하면 조작 권한이 동승자 폰으로", 1.5, 6.5, "주행하면\n권한이 이사한다",
-     "운전자 화면은 잠기고\n동승자 폰이 받는다"),
-    ("날씨 API가 아니라 와이퍼로 읽는다", 2.5, 7.0, "비는 와이퍼가 안다",
-     "날씨 API 없이\n차의 신호로 분위기를"),
+    ("좌석이 곧 입장권", 2.5, 5.5, "차에서 노래\n누가 틀어?", "보통은 운전석 한 명"),
+    ("최초 1회 QR", 1.5, 4.0, "타면 전원\n자동으로 들어옵니다", "좌석 착석 신호로 인식"),
+    ("추천이 떴습니다", 0.5, 6.5, "아무도 안 넣으면\n차가 먼저 권한다", "분위기에 맞는 5곡 · 20초"),
+    ("주행하면 조작 권한이 동승자 폰으로", 1.5, 6.0, "달리면\n권한이 뒷자리로", "운전자 화면은 잠깁니다"),
+    ("날씨 API가 아니라 와이퍼로 읽는다", 2.5, 6.0, "비는 와이퍼가 안다", "날씨 API 없이 차의 신호로"),
 ]
 
 
-# ── 자막 이미지 ─────────────────────────────────────────────────────────
-def caption(size, title, sub, scale=1.0):
-    """투명 배경에 자막만 그린 전체 캔버스 PNG."""
-    W, H = size
-    im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    ft = font(int(44 * scale), 2)
-    fs = font(int(26 * scale), 0)
-    d.text((72, int(46 * scale)), title, font=ft, fill=FG)
+# ── 그리기 ──────────────────────────────────────────────────────────────
+def backdrop(w, h, boxes):
+    """배경과 기기 그림자. 평평한 검정이면 화면이 공중에 뜹니다."""
+    bg = Image.new("RGB", (w, h), (10, 11, 14))
+    top, bottom = (22, 24, 30), (9, 10, 13)
+    d = ImageDraw.Draw(bg)
+    for y in range(h):
+        t = y / max(1, h - 1)
+        d.line([(0, y), (w, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(top, bottom)))
+
+    # 기기 뒤의 옅은 빛 — 화면이 놓인 자리를 눈이 먼저 찾습니다.
+    glow = Image.new("L", (w, h), 0)
+    gd = ImageDraw.Draw(glow)
+    for (x, y, bw, bh, _r) in boxes:
+        gd.ellipse([x - bw * 0.3, y - bh * 0.2, x + bw * 1.3, y + bh * 1.2], fill=46)
+    glow = glow.filter(ImageFilter.GaussianBlur(170))
+    bg = Image.composite(Image.new("RGB", (w, h), (46, 52, 66)), bg, glow)
+
+    # 그림자
+    sh = Image.new("L", (w, h), 0)
+    sd = ImageDraw.Draw(sh)
+    for (x, y, bw, bh, r) in boxes:
+        sd.rounded_rectangle([x, y + 16, x + bw, y + bh + 26], radius=r, fill=150)
+    sh = sh.filter(ImageFilter.GaussianBlur(34))
+    bg = Image.composite(Image.new("RGB", (w, h), (0, 0, 0)), bg, sh)
+    return bg
+
+
+def chrome(w, h, devices):
+    """기기 베젤. 화면 자리는 뚫어 두고 그 둘레만 그립니다."""
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    for (x, y, sw, sh, bez, radius) in devices:
+        out = [x - bez, y - bez, x + sw + bez, y + sh + bez]
+        d.rounded_rectangle(out, radius=radius + bez, fill=BEZEL + (255,))
+        d.rounded_rectangle(out, radius=radius + bez, outline=EDGE + (255,), width=2)
+        # 화면 자리를 뚫습니다 (ImageDraw 는 알파를 그대로 덮어씁니다)
+        d.rounded_rectangle([x, y, x + sw, y + sh], radius=radius, fill=(0, 0, 0, 0))
+    return layer
+
+
+def labels(w, h, items):
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    f = font(23, 0)
+    for (x, y, text) in items:
+        d.text((x, y), text, font=f, fill=DIM + (255,))
+    return layer
+
+
+def caption(w, h, title, sub, x, y, big=46, small=27, rule=True):
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    if rule:
+        d.rectangle([x, y - 26, x + 54, y - 22], fill=ACCENT + (255,))
+    ft, fs = font(big, 2), font(small, 0)
+    yy = y
+    for line in title.split("\n"):
+        d.text((x, yy), line, font=ft, fill=INK + (255,))
+        yy += int(big * 1.25)
     if sub:
-        d.text((74, int(108 * scale)), sub, font=fs, fill=DIM)
-    return im
+        yy += 6
+        for line in sub.split("\n"):
+            d.text((x + 2, yy), line, font=fs, fill=DIM + (255,))
+            yy += int(small * 1.45)
+    return layer
 
 
-def card(size, lines, sub=None, foot=None):
-    """제목·마무리 카드."""
-    W, H = size
-    im = Image.new("RGB", (W, H), BG)
+def card(w, h, lines, sub=None, foot=None, big=86):
+    im = backdrop(w, h, [])
     d = ImageDraw.Draw(im)
-    fb = font(84, 2)
-    fm = font(36, 0)
-    ff = font(28, 0)
-    y = H // 2 - 40 * len(lines) - (40 if sub else 0)
+    fb, fm, ff = font(big, 2), font(34, 0), font(27, 0)
+    total = len(lines) * int(big * 1.2) + (len(sub) * 50 if sub else 0)
+    y = (h - total) // 2
     for ln in lines:
-        w = d.textlength(ln, font=fb)
-        d.text(((W - w) / 2, y), ln, font=fb, fill=FG)
-        y += 104
+        d.text(((w - d.textlength(ln, font=fb)) / 2, y), ln, font=fb, fill=INK)
+        y += int(big * 1.2)
     if sub:
-        y += 16
+        y += 20
         for ln in sub:
-            w = d.textlength(ln, font=fm)
-            d.text(((W - w) / 2, y), ln, font=fm, fill=DIM)
-            y += 52
+            d.text(((w - d.textlength(ln, font=fm)) / 2, y), ln, font=fm, fill=DIM)
+            y += 50
     if foot:
-        w = d.textlength(foot, font=ff)
-        d.text(((W - w) / 2, H - 110), foot, font=ff, fill=ACCENT)
-    return im
-
-
-def frame_chrome(size, car_box, phone_box):
-    """화면 둘레의 테두리와 이름표. 한 번 그려 영상 내내 얹습니다."""
-    W, H = size
-    im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    f = font(24, 0)
-    for box, label in ((car_box, "차량 디스플레이"), (phone_box, "동승자 폰")):
-        x, y, w, h = box
-        d.rectangle([x - 1, y - 1, x + w, y + h], outline=(70, 72, 78))
-        d.text((x, y + h + 14), label, font=f, fill=DIM)
+        d.text(((w - d.textlength(foot, font=ff)) / 2, h - 118), foot, font=ff, fill=ACCENT)
     return im
 
 
@@ -166,7 +208,6 @@ def build(indir: Path, outdir: Path):
     work = outdir / "작업"
     work.mkdir(parents=True, exist_ok=True)
 
-    # 장면 시각 → 영상 시각
     off = meta["scenarioStart"] + LEAD
 
     def at(needle):
@@ -175,13 +216,11 @@ def build(indir: Path, outdir: Path):
                 return c["t"] + off
         raise SystemExit(f"장면을 찾지 못했습니다: {needle}")
 
-    # 1. 폰 프레임 → 영상. 찍힌 시각을 그대로 길이로 씁니다(가변 프레임레이트).
+    car_dur = probe(indir / "car.mp4")
+
+    # 1. 폰 프레임 → 영상 (찍힌 시각을 그대로 길이로)
     print("1/6  폰 화면을 영상으로")
     lst = work / "phone.txt"
-    car_dur = float(subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(indir / "car.mp4")],
-        capture_output=True, text=True).stdout.strip())
     with lst.open("w") as f:
         first = indir / "phone" / frames[0]["f"]
         f.write(f"file '{first.resolve()}'\nduration {frames[0]['t'] + LEAD:.3f}\n")
@@ -189,144 +228,178 @@ def build(indir: Path, outdir: Path):
             f.write(f"file '{(indir / 'phone' / a['f']).resolve()}'\n")
             f.write(f"duration {max(0.02, b['t'] - a['t']):.3f}\n")
         last = indir / "phone" / frames[-1]["f"]
-        tail = max(0.1, car_dur - (frames[-1]["t"] + LEAD))
-        f.write(f"file '{last.resolve()}'\nduration {tail:.3f}\n")
+        f.write(f"file '{last.resolve()}'\nduration {max(0.1, car_dur - (frames[-1]['t'] + LEAD)):.3f}\n")
         f.write(f"file '{last.resolve()}'\n")
     phone_mp4 = work / "phone.mp4"
-    run("ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
-        "-vf", "fps=30,scale=-2:860", "-pix_fmt", "yuv420p",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", str(phone_mp4))
+    if phone_mp4.exists():
+        print("     (이미 있어 건너뜁니다)")
+    else:
+      run("ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
+        "-vf", "fps=30", "-pix_fmt", "yuv420p", "-c:v", "libx264",
+        "-preset", "veryfast", "-crf", "18", str(phone_mp4))
 
-    # 2. 차량 + 폰을 한 화면에
-    print("2/6  두 화면을 한 화면에")
+    # 2. 기기 안에 넣고 한 화면으로
+    print("2/6  기기 안에 넣기")
     W, H = 1920, 1080
-    cw, ch = 1296, 929
-    car_box = (72, 138, cw, ch)
-    pw = int(round(860 * 390 / 844 / 2) * 2)
-    phone_box = (W - 72 - pw, 150, pw, 860)
-    chrome = work / "chrome.png"
-    frame_chrome((W, H), car_box, phone_box).save(chrome)
+    # 기기 아래 이름표까지 화면 안에 들어와야 합니다. 밑이 잘리면 바로 티가 납니다.
+    ch = 784
+    cw = int(round(ch * CAR_CROP[0] / CAR_CROP[1] / 2) * 2)
+    ph = 784
+    pw = int(round(ph * 390 / 844 / 2) * 2)
+    gap = 92
+    x0 = (W - (cw + gap + pw)) // 2
+    y0 = 180
+    car_box = (x0, y0, cw, ch)
+    phone_box = (x0 + cw + gap, y0, pw, ph)
+
+    bg_png, chrome_png, label_png = work / "bg.png", work / "chrome.png", work / "labels.png"
+    backdrop(W, H, [(x0 - 16, y0 - 16, cw + 32, ch + 32, 26),
+                    (phone_box[0] - 14, y0 - 14, pw + 28, ph + 28, 58)]).save(bg_png)
+    chrome(W, H, [(*car_box, 16, 12), (*phone_box, 14, 44)]).save(chrome_png)
+    labels(W, H, [(x0 + 2, y0 + ch + 34, "차량 디스플레이"),
+                  (phone_box[0] + 2, y0 + ph + 34, "동승자 폰")]).save(label_png)
 
     stage = work / "stage.mp4"
-    run("ffmpeg", "-v", "error", "-y",
-        "-i", str(indir / "car.mp4"), "-i", str(phone_mp4), "-i", str(chrome),
+    if stage.exists():
+        print("     (이미 있어 건너뜁니다)")
+    else:
+      run("ffmpeg", "-v", "error", "-y",
+        "-loop", "1", "-i", str(bg_png),
+        "-i", str(indir / "car.mp4"), "-i", str(phone_mp4),
+        "-i", str(chrome_png), "-i", str(label_png),
         "-filter_complex",
-        f"color=c=0x{BG[0]:02x}{BG[1]:02x}{BG[2]:02x}:s={W}x{H}:d={car_dur}[bg];"
-        f"[0:v]crop={CAR_CROP[0]}:{CAR_CROP[1]}:{CAR_CROP[2]}:{CAR_CROP[3]},"
+        f"[1:v]crop={CAR_CROP[0]}:{CAR_CROP[1]}:{CAR_CROP[2]}:{CAR_CROP[3]},"
         f"scale={cw}:{ch},fps=30,setsar=1[car];"
-        f"[1:v]scale={pw}:860,setsar=1[ph];"
-        f"[bg][car]overlay={car_box[0]}:{car_box[1]}[a];"
+        f"[2:v]scale={pw}:{ph},setsar=1[ph];"
+        f"[0:v][car]overlay={car_box[0]}:{car_box[1]}[a];"
         f"[a][ph]overlay={phone_box[0]}:{phone_box[1]}[b];"
-        f"[b][2:v]overlay=0:0[v]",
-        "-map", "[v]", "-pix_fmt", "yuv420p", "-c:v", "libx264",
-        "-preset", "medium", "-crf", "19", str(stage))
+        f"[b][3:v]overlay=0:0[c];[c][4:v]overlay=0:0[v]",
+        "-map", "[v]", "-t", f"{car_dur:.2f}", "-pix_fmt", "yuv420p",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18", str(stage))
 
-    # 3. 장면별로 잘라 자막을 얹습니다
-    print("3/6  장면을 자르고 자막을 얹습니다")
+    # 3. 장면별로 자르고 자막을 넣고 빼기
+    print("3/6  장면과 자막")
     parts = []
     for i, (needle, lead, dur, title, sub) in enumerate(SEGMENTS):
         cap = work / f"cap{i:02d}.png"
-        caption((W, H), title, sub).save(cap)
+        caption(W, H, title, sub, x0, 56).save(cap)
         seg = work / f"seg{i:02d}.mp4"
         run("ffmpeg", "-v", "error", "-y", "-ss", f"{at(needle) + lead:.2f}", "-t", f"{dur}",
-            "-i", str(stage), "-i", str(cap),
-            "-filter_complex", "[0:v][1:v]overlay=0:0[v]", "-map", "[v]",
-            "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "medium",
-            "-crf", "19", "-r", "30", str(seg))
-        parts.append(seg)
-        print(f"     {i+1:2}/{len(SEGMENTS)}  {title}")
+            "-i", str(stage), "-loop", "1", "-i", str(cap),
+            "-filter_complex",
+            # 자막은 들어오고 나갈 때 흐려집니다. 툭 나타나면 자동 생성물처럼 보입니다.
+            f"[1:v]format=rgba,fade=t=in:st=0.15:d=0.45:alpha=1,"
+            f"fade=t=out:st={dur - 0.75:.2f}:d=0.45:alpha=1[cap];"
+            f"[0:v][cap]overlay=0:0:shortest=1[v]",
+            "-map", "[v]", "-t", f"{dur}", "-pix_fmt", "yuv420p", "-c:v", "libx264",
+            "-preset", "medium", "-crf", "18", "-r", "30", str(seg))
+        parts.append((seg, dur))
+        print(f"     {i + 1:2}/{len(SEGMENTS)}  {title}")
 
-    # 4. 제목·마무리 카드
+    # 4. 제목·마무리
     print("4/6  제목과 마무리")
-    head = work / "head.png"
-    card((W, H), ["플레이시트 (PlaySeat)"],
+    head_png, tail_png = work / "head.png", work / "tail.png"
+    card(W, H, ["플레이시트"],
          ["차에 타는 순간 모든 좌석이 DJ 부스가 된다",
           "Pleos Connect 차량용 앱 · 팀 Semicolon"],
-         "에뮬레이터 실제 구동 화면 · 편집 외에 가공하지 않았습니다").save(head)
-    tail = work / "tail.png"
-    card((W, H), ["폰은 알 수 없는 것들"],
+         "에뮬레이터 실제 구동 화면 · 편집 외에 가공하지 않았습니다", big=96).save(head_png)
+    card(W, H, ["폰은 알 수 없는 것들"],
          ["누가 어느 좌석에 탔는가 · 지금 주행 중인가",
           "비가 오는가 · 굽잇길인가 · 충전 중인가",
           "이 신호들이 있어야 성립하는 앱입니다"],
-         "github.com/coalfire-create/playseat").save(tail)
-    head_mp4, tail_mp4 = work / "head.mp4", work / "tail.mp4"
-    for png, mp4, d in ((head, head_mp4, 5), (tail, tail_mp4, 7)):
-        run("ffmpeg", "-v", "error", "-y", "-loop", "1", "-t", str(d), "-i", str(png),
-            "-vf", "fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "medium",
-            "-crf", "19", str(mp4))
+         "github.com/coalfire-create/playseat", big=78).save(tail_png)
+    head, tail = work / "head.mp4", work / "tail.mp4"
+    for png, mp4, d in ((head_png, head, 5.0), (tail_png, tail, 7.0)):
+        run("ffmpeg", "-v", "error", "-y", "-loop", "1", "-t", f"{d}", "-i", str(png),
+            "-vf", f"fps=30,fade=t=in:st=0:d=0.8,fade=t=out:st={d - 1.0:.2f}:d=0.9,format=yuv420p",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "18", str(mp4))
 
-    # 5. 이어 붙이기
-    print("5/6  이어 붙이기")
-    order = [head_mp4] + parts + [tail_mp4]
-    cat = work / "list.txt"
-    cat.write_text("".join(f"file '{p.resolve()}'\n" for p in order))
+    # 5. 겹쳐 넘기며 잇기
+    print("5/6  겹쳐 넘기며 잇기")
+    clips = [(head, 5.0)] + parts + [(tail, 7.0)]
     final = outdir / "시연영상_플레이시트.mp4"
-    run("ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(cat),
-        "-vf", "fade=t=in:st=0:d=0.4", "-c:v", "libx264", "-preset", "slow",
-        "-crf", "20", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(final))
+    xfade_concat(clips, final)
 
-    # 6. 숏폼 — 세로. 폰을 크게 두고 차량 화면을 위에 얹습니다.
+    # 6. 숏폼
     print("6/6  숏폼")
-    SW, SH = 1080, 1920
-    sparts = []
-    for i, (needle, lead, dur, big, small) in enumerate(SHORT):
-        cap = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
-        d = ImageDraw.Draw(cap)
-        fb, fs = font(70, 2), font(34, 0)
-        y = 70
-        for ln in big.split("\n"):
-            d.text((60, y), ln, font=fb, fill=FG); y += 86
-        y += 10
-        for ln in small.split("\n"):
-            d.text((62, y), ln, font=fs, fill=DIM); y += 46
-        capf = work / f"scap{i}.png"
-        cap.save(capf)
-        seg = work / f"short{i}.mp4"
-        t = at(needle) + lead
-        run("ffmpeg", "-v", "error", "-y", "-ss", f"{t:.2f}", "-t", f"{dur}",
-            "-i", str(indir / "car.mp4"), "-ss", f"{t:.2f}", "-t", f"{dur}",
-            "-i", str(phone_mp4), "-i", str(capf),
-            "-filter_complex",
-            f"color=c=0x{BG[0]:02x}{BG[1]:02x}{BG[2]:02x}:s={SW}x{SH}:d={dur}[bg];"
-            f"[0:v]crop={CAR_CROP[0]}:{CAR_CROP[1]}:{CAR_CROP[2]}:{CAR_CROP[3]},"
-            f"scale=1020:-2,fps=30,setsar=1[car];"
-            f"[1:v]scale=-2:760,setsar=1[ph];"
-            f"[bg][car]overlay=30:330[a];"
-            f"[a][ph]overlay=(W-w)/2:1110[b];"
-            f"[b][2:v]overlay=0:0[v]",
-            "-map", "[v]", "-pix_fmt", "yuv420p", "-c:v", "libx264",
-            "-preset", "medium", "-crf", "20", "-r", "30", str(seg))
-        sparts.append(seg)
-
-    scard = work / "scard.png"
-    sc = Image.new("RGB", (SW, SH), BG)
-    d = ImageDraw.Draw(sc)
-    fb, fm = font(78, 2), font(34, 0)
-    for j, ln in enumerate(["플레이시트", "PlaySeat"]):
-        w = d.textlength(ln, font=fb); d.text(((SW - w) / 2, 820 + j * 96), ln, font=fb, fill=FG)
-    for j, ln in enumerate(["차의 모든 좌석이", "DJ 부스가 된다"]):
-        w = d.textlength(ln, font=fm); d.text(((SW - w) / 2, 1040 + j * 50), ln, font=fm, fill=DIM)
-    w = d.textlength("github.com/coalfire-create/playseat", font=fm)
-    d.text(((SW - w) / 2, 1200), "github.com/coalfire-create/playseat", font=fm, fill=ACCENT)
-    sc.save(scard)
-    scard_mp4 = work / "scard.mp4"
-    run("ffmpeg", "-v", "error", "-y", "-loop", "1", "-t", "3.5", "-i", str(scard),
-        "-vf", "fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "medium",
-        "-crf", "20", str(scard_mp4))
-
-    scat = work / "slist.txt"
-    scat.write_text("".join(f"file '{p.resolve()}'\n" for p in sparts + [scard_mp4]))
     short = outdir / "숏폼_플레이시트.mp4"
-    run("ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(scat),
-        "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart", str(short))
+    build_short(indir, work, phone_mp4, at, short)
 
     for p in (final, short):
-        dur = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
-                              "format=duration", "-of", "csv=p=0", str(p)],
-                             capture_output=True, text=True).stdout.strip()
-        mb = p.stat().st_size / 1048576
-        print(f"\n{p}  —  {float(dur):.0f}초 · {mb:.1f} MB")
+        print(f"\n{p}  —  {probe(p):.0f}초 · {p.stat().st_size / 1048576:.1f} MB")
+
+
+def xfade_concat(clips, out):
+    """크로스 디졸브로 잇습니다. 툭툭 끊기면 '자른 티' 가 그대로 납니다."""
+    args = ["ffmpeg", "-v", "error", "-y"]
+    for path, _ in clips:
+        args += ["-i", str(path)]
+    chain, prev, elapsed = [], "0:v", clips[0][1]
+    for i in range(1, len(clips)):
+        off = elapsed - XF
+        tag = f"x{i}"
+        chain.append(f"[{prev}][{i}:v]xfade=transition=fade:duration={XF}:offset={off:.3f}[{tag}]")
+        prev = tag
+        # xfade 출력 길이는 offset + 두 번째 입력 길이입니다. 겹친 만큼 줄어듭니다.
+        elapsed = off + clips[i][1]
+    args += ["-filter_complex", ";".join(chain), "-map", f"[{prev}]",
+             "-c:v", "libx264", "-preset", "slow", "-crf", "19",
+             "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out)]
+    run(*args)
+
+
+def build_short(indir, work, phone_mp4, at, out):
+    SW, SH = 1080, 1920
+    # 세로 화면은 손안에서 봅니다. 작게 넣으면 뭘 보여 주는지 안 보입니다.
+    # 큰 글자가 두 줄일 때 설명줄까지 들어갈 자리를 위에 비워 둬야 합니다.
+    ch = 680
+    cw = int(round(ch * CAR_CROP[0] / CAR_CROP[1] / 2) * 2)
+    ph = 718
+    pw = int(round(ph * 390 / 844 / 2) * 2)
+    car_box = ((SW - cw) // 2, 384, cw, ch)
+    phone_box = ((SW - pw) // 2, 1118, pw, ph)
+
+    bg = work / "sbg.png"
+    backdrop(SW, SH, [(car_box[0] - 14, car_box[1] - 14, cw + 28, ch + 28, 24),
+                      (phone_box[0] - 12, phone_box[1] - 12, pw + 24, ph + 24, 52)]).save(bg)
+    chm = work / "schrome.png"
+    chrome(SW, SH, [(*car_box, 14, 12), (*phone_box, 12, 42)]).save(chm)
+
+    clips = []
+    for i, (needle, lead, dur, big, small) in enumerate(SHORT):
+        cap = work / f"scap{i}.png"
+        caption(SW, SH, big, small, 62, 104, big=80, small=35).save(cap)
+        seg = work / f"short{i}.mp4"
+        t = at(needle) + lead
+        run("ffmpeg", "-v", "error", "-y",
+            "-loop", "1", "-i", str(bg),
+            "-ss", f"{t:.2f}", "-t", f"{dur}", "-i", str(indir / "car.mp4"),
+            "-ss", f"{t:.2f}", "-t", f"{dur}", "-i", str(phone_mp4),
+            "-i", str(chm), "-loop", "1", "-i", str(cap),
+            "-filter_complex",
+            f"[1:v]crop={CAR_CROP[0]}:{CAR_CROP[1]}:{CAR_CROP[2]}:{CAR_CROP[3]},"
+            f"scale={cw}:{ch},fps=30,setsar=1[car];"
+            f"[2:v]scale={pw}:{ph},setsar=1[ph];"
+            f"[0:v][car]overlay={car_box[0]}:{car_box[1]}[a];"
+            f"[a][ph]overlay={phone_box[0]}:{phone_box[1]}[b];"
+            f"[b][3:v]overlay=0:0[c];"
+            f"[4:v]format=rgba,fade=t=in:st=0.1:d=0.35:alpha=1,"
+            f"fade=t=out:st={dur - 0.6:.2f}:d=0.35:alpha=1[cap];"
+            f"[c][cap]overlay=0:0:shortest=1[v]",
+            "-map", "[v]", "-t", f"{dur}", "-pix_fmt", "yuv420p", "-c:v", "libx264",
+            "-preset", "medium", "-crf", "19", "-r", "30", str(seg))
+        clips.append((seg, dur))
+
+    end_png = work / "send.png"
+    card(SW, SH, ["플레이시트"],
+         ["차의 모든 좌석이", "DJ 부스가 된다"],
+         "github.com/coalfire-create/playseat", big=84).save(end_png)
+    end = work / "send.mp4"
+    run("ffmpeg", "-v", "error", "-y", "-loop", "1", "-t", "3.2", "-i", str(end_png),
+        "-vf", "fps=30,fade=t=in:st=0:d=0.5,format=yuv420p",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "19", str(end))
+    clips.append((end, 3.2))
+    xfade_concat(clips, out)
 
 
 if __name__ == "__main__":

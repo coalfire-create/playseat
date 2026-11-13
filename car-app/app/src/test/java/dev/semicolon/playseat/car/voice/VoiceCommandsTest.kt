@@ -13,13 +13,6 @@ class VoiceCommandsTest {
     }
 
     @Test
-    fun `내 차례 넘겨는 넘겨를 포함해도 차례 넘기기로 해석된다`() {
-        listOf("내 차례 넘겨", "차례 넘길게", "내차례 패스").forEach {
-            assertEquals(it, VoiceCommands.Command.PASS_TURN, VoiceCommands.parse(it))
-        }
-    }
-
-    @Test
     fun `좋아요 계열을 알아듣는다`() {
         listOf("이 노래 좋아", "저장해줘", "찜").forEach {
             assertEquals(it, VoiceCommands.Command.LIKE, VoiceCommands.parse(it))

@@ -5,7 +5,7 @@
  * 동승자 웹앱을 차량 앱 없이 개발·테스트하기 위한 목(mock)입니다.
  * contract/protocol.md v0.1 의 차량 측 역할을 그대로 수행합니다.
  *   - state.sync 를 단일 진실 공급원으로 내려보냅니다
- *   - seat.claim / queue.add / vote.skip / turn.pass 를 검증하고 거절합니다
+ *   - seat.claim / queue.add / vote.skip 을 검증하고 거절합니다
  *
  * 의존성 없음 (Node 22+ 내장 WebSocket 사용).
  *
@@ -30,7 +30,7 @@ const START_DRIVING = args.includes("--driving");
 const HOST = argOf("host", "localhost:8080");
 const URL = `ws://${HOST}/session/${SESSION}?role=car`;
 
-const SEAT_ORDER = ["R1R", "R2L", "R2C", "R2R", "R1L"]; // 운전석(R1L)이 마지막 차례
+const SEAT_IDS = ["R1L", "R1R", "R2L", "R2C", "R2R"];
 const PROFILE = { R1L: "DRIVER", R1R: "ADULT", R2L: "ADULT", R2C: "CHILD", R2R: "CHILD" };
 
 let itemSeq = 1;
@@ -45,8 +45,6 @@ const state = {
     profile: PROFILE[seatId],
     connected: false,
   })),
-  turnSeatId: null,
-  turnDeadlineMs: 30000,
   nowPlaying: null,
   queue: [],
   etaSeconds: START_ETA,
@@ -63,17 +61,7 @@ let tripStartedAt = null;
 let tripTracks = [];
 
 const seat = (id) => state.seats.find((s) => s.seatId === id);
-const occupied = () => SEAT_ORDER.filter((id) => seat(id)?.occupied);
-
-function advanceTurn() {
-  const list = occupied();
-  if (list.length === 0) {
-    state.turnSeatId = null;
-    return;
-  }
-  const at = list.indexOf(state.turnSeatId);
-  state.turnSeatId = list[(at + 1) % list.length];
-}
+const occupied = () => SEAT_IDS.filter((id) => seat(id)?.occupied);
 
 const LANDING_SECONDS = 300;
 
@@ -152,19 +140,15 @@ function handle(msg) {
     s.nickname = msg.nickname || null;
     s.connected = true;
     console.log(`  좌석 참여: ${msg.seatId} ← ${msg.nickname || msg.deviceId}`);
-    if (!state.turnSeatId) advanceTurn();
     return sync();
   }
 
   if (type === "queue.add") {
-    const lounge = state.mode === "CHARGING_LOUNGE";
-    if (!lounge && state.turnSeatId !== msg.seatId) return reject(type, "NOT_YOUR_TURN", msg.seatId);
+    // 앉아 있으면 누구나, 언제든, 몇 곡이든. 차례도 좌석별 상한도 없습니다.
     const s = seat(msg.seatId);
-    if (lounge && !s?.occupied) return reject(type, "SEAT_TAKEN", msg.seatId);
-    if (s?.profile === "CHILD" && (msg.durationMs || 0) > 400000)
+    if (!s?.occupied) return reject(type, "SEAT_TAKEN", msg.seatId);
+    if (s.profile === "CHILD" && (msg.durationMs || 0) > 400000)
       return reject(type, "PROFILE_BLOCKED", msg.seatId);
-    const dup = state.queue.filter((q) => q.requestedBySeat === msg.seatId).length;
-    if (dup >= 2) return reject(type, "PROFILE_BLOCKED", msg.seatId);
     state.queue.push({
       itemId: `q_${itemSeq++}`,
       title: msg.title,
@@ -174,7 +158,6 @@ function handle(msg) {
     });
     console.log(`  큐 추가: ${msg.title} — ${msg.artist} (${msg.seatId})`);
     if (!state.nowPlaying) playNext();
-    if (!lounge) advanceTurn();
     return sync();
   }
 
@@ -202,11 +185,6 @@ function handle(msg) {
     return;
   }
 
-  if (type === "turn.pass") {
-    if (state.turnSeatId !== msg.seatId) return reject(type, "NOT_YOUR_TURN", msg.seatId);
-    advanceTurn();
-    return sync();
-  }
 }
 
 function connect() {
@@ -216,9 +194,7 @@ function connect() {
   ws.onopen = () => {
     console.log("차량(목) 연결됨. 키: d=주행전환 c=충전 e=ETA4분 1~5=좌석 n=다음곡 q=종료");
     recomputeThreshold();
-    if (!state.turnSeatId) advanceTurn();
     sync();
-    if (state.turnSeatId) send({ type: "turn.notify", seatId: state.turnSeatId, deadlineMs: 30000 });
   };
 
   ws.onmessage = (e) => {
@@ -275,7 +251,6 @@ if (process.stdin.isTTY) {
         s.deviceId = null; s.nickname = null; s.connected = false;
         state.queue = state.queue.filter((q) => q.requestedBySeat !== s.seatId);
         state.skipVotes = state.skipVotes.filter((v) => v !== s.seatId);
-        if (state.turnSeatId === s.seatId) advanceTurn();
       }
       recomputeThreshold();
       console.log(`  ${s.seatId} 착석=${s.occupied}`);

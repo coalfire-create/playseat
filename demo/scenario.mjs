@@ -7,10 +7,9 @@
  * 녹화하는 사람은 화면만 잡으면 됩니다 — 손으로 눌러야 하는 것이 없습니다.
  *
  * 장면 순서에 이유가 있습니다
- *   선곡 순서는 운전석부터 돕니다. 운전석은 폰으로 곡을 넣지 않으므로 첫 차례
- *   동안 큐가 비어 있고, 바로 거기서 '아무도 안 넣으면 차가 권한다' 가 자연스럽게
- *   일어납니다. 사람이 고르는 장면을 먼저 넣으면 그 뒤로는 큐가 비지 않아
- *   추천 장면을 억지로 만들어야 합니다.
+ *   타자마자는 큐가 비어 있습니다. 바로 거기서 '아무도 안 넣으면 차가 권한다' 가
+ *   자연스럽게 일어납니다. 사람이 고르는 장면을 먼저 넣으면 그 뒤로는 큐가 비지
+ *   않아 추천 장면을 억지로 만들어야 합니다.
  *
  * 준비
  *   1) 에뮬레이터 실행 + 차량 앱 설치
@@ -143,7 +142,7 @@ await scene("폰 연결 — 최초 1회 QR, 다음부터 자동", "최초 1회 Q
 });
 
 await scene("아무도 안 넣을 때 — 차가 먼저 권한다", "아무도 안 넣으면 차가 먼저 권한다", async () => {
-  console.log("   운전석 차례입니다. 큐가 비어 있습니다");
+  console.log("   아직 아무도 곡을 넣지 않았습니다");
   for (let i = 0; i < 40; i++) {
     if ((phones[0].state?.suggestions ?? []).length) break;
     await sleep(1000);
@@ -159,13 +158,26 @@ await scene("아무도 안 넣을 때 — 차가 먼저 권한다", "아무도 �
   await wait(3);
 });
 
-await scene("좌석 턴 — 차례대로 한 곡씩", "선착순이 아니라 좌석 라운드로빈", async () => {
+await scene("듣고 싶은 걸 그냥 넣는다", "차례를 기다리지 않습니다", async () => {
+  // 차례가 없으므로 누가 먼저 넣든 상관없습니다. 듣고 싶은 곡이 생긴 순간이
+  // 넣는 순간이고, 그게 플레이리스트입니다.
   for (const [who, q] of [["엄마", "아이유"], ["서아", "아기상어"]]) {
     const p = phones.find((x) => x.nickname === who);
-    for (let i = 0; i < 40 && p.state?.turnSeatId !== p.seatId; i++) await sleep(1000);
     const t = await p.add(q);
     mark("beat", `${who} → ${t?.title ?? q}`);
     console.log(`   ${who} → ${t ? `${t.title} — ${t.artist}` : q}`);
+    await wait(3);
+  }
+});
+
+await scene("한 사람이 연달아 넣어도 됩니다", "한 사람이 연달아 넣어도 막지 않습니다", async () => {
+  // 독점을 규칙으로 막지 않습니다. 같이 탄 사람들은 서로 보고 있고,
+  // 그래도 불만이면 스킵 투표가 있습니다.
+  const p = phones.find((x) => x.nickname === "서아");
+  for (const q of ["뽀로로", "핑크퐁"]) {
+    const t = await p.add(q);
+    mark("beat", `서아 → ${t?.title ?? q}`);
+    console.log(`   서아 → ${t ? `${t.title} — ${t.artist}` : q}`);
     await wait(2.5);
   }
 });
@@ -209,12 +221,12 @@ await scene("도착 — 기어 P, 운전자 화면이 다시 열립니다", "정
   await wait(7);
 });
 
-await scene("충전 라운지 — 차례 없이 모두 추가", "충전 중에는 차례 없이 모두 추가", async () => {
+await scene("충전 라운지 — 정차해 있고 시간이 있다", "충전 중에는 라운지 모드", async () => {
   await car.charging(true);
   console.log("   충전 시작 → 라운지 모드");
   await wait(4);
   for (const p of phones) { await p.add(p.nickname === "엄마" ? "폴킴" : "핑크퐁"); await sleep(900); }
-  console.log("   → 차례를 기다리지 않고 두 좌석이 동시에 넣습니다");
+  console.log("   → 충전 중임이 화면에 표시되고, 분위기도 라운지로 바뀝니다");
   await wait(6);
 });
 

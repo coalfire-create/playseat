@@ -99,7 +99,7 @@ class SuggestionTest {
         e.onMood("CALM", "조용한 시간", "정차 중이에요")
         e.onRequest(
             PhoneRequest(
-                type = ReqType.QUEUE_ADD, seatId = e.state.value.turnSeatId,
+                type = ReqType.QUEUE_ADD, seatId = SeatId.R2L,
                 title = "곡", artist = "가수", durationMs = 180_000,
             )
         )
@@ -222,7 +222,7 @@ class SuggestionTest {
         e.onMood("CALM", "조용한 시간", "정차")
         e.onRequest(
             PhoneRequest(
-                type = ReqType.QUEUE_ADD, seatId = e.state.value.turnSeatId,
+                type = ReqType.QUEUE_ADD, seatId = SeatId.R2L,
                 title = "사람이 고른 곡", artist = "가수", durationMs = 180_000,
             )
         )

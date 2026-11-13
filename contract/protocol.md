@@ -1,4 +1,4 @@
-# 플레이시트 통신 계약 v0.5
+# 플레이시트 통신 계약 v0.6
 
 > 차량 앱(구성원 A) ↔ 허브 서버(구성원 B) ↔ 동승자 웹(구성원 B)
 > 저장소로 옮길 위치: `contract/protocol.md`
@@ -13,15 +13,13 @@
 | `state.sync` 기본 필드 | 동작 | 중계 | 표시 |
 | `seat.claim` | 동작 | 중계 | 동작 |
 | `queue.add` / `queue.remove` | 동작 | 중계 | 추가만 |
-| `vote.skip` / `reaction.like` / `turn.pass` | 동작 | 중계 | skip·like |
+| `vote.skip` / `reaction.like` | 동작 | 중계 | 동작 |
 | `reject` (+`seatId`) | 동작 | 브로드캐스트 | 표시 |
-| `turn.notify` | 동작 | 브로드캐스트 | 표시 |
 | `driveState` 전환에 따른 권한 이동 | 동작 | — | 동작 |
 | `etaSeconds` / `queueTargetMs` | 동작 (Fake 값이 실제로 흐름) | — | 표시 |
 | `mode` (CHARGING_LOUNGE) | 동작 | — | 동작 |
 | `landing` | 동작 | — | 동작 |
 | `queueTotalMs` | 동작 | — | 표시 |
-| `turnRemainingMs` (v0.3) | 동작 — 1초마다 갱신 | — | 표시 |
 | `artworkUrl` (v0.4) | 동작 — 앨범 커버 표시 | 검색 결과에 포함 + 목록 곡은 예열 | 전달 |
 | `mood*` (v0.5) | 동작 — 와이퍼·전조등·조향·충전·도착으로 판정 | — | 표시 |
 | `suggestions` (v0.5) | 동작 — 큐가 비면 자동 담기 | `mood.query` 에 응답 | 표시 + 담기/거절 |
@@ -74,8 +72,6 @@
       "connected": true
     }
   ],
-  "turnSeatId": "R2L",
-  "turnDeadlineMs": 30000,
   "nowPlaying": {
     "itemId": "q_17",
     "title": "...",
@@ -95,7 +91,6 @@
   "mode": "NORMAL",
   "landing": false,
   "queueTotalMs": 1240000,
-  "turnRemainingMs": 18000,
   "moodId": "RAIN",
   "moodLabel": "비 오는 날",
   "moodReason": "와이퍼가 움직이고 있어요",
@@ -114,18 +109,17 @@
 - `profile`: `"DRIVER"` | `"ADULT"` | `"CHILD"` | `"GUEST"`
 - `occupied` 는 착석 신호, `connected` 는 폰 연결 여부. **둘은 다르다.**
   착석했지만 폰 미연결인 좌석은 좌석도에 "참여 대기"로 표시.
-- `turnSeatId` 가 `null` 이면 턴 대기 상태(예: 주행 시작 전).
-- `turnRemainingMs` (v0.3): 지금 차례인 좌석에 남은 시간. **`turnDeadlineMs` 를 넘기면
-  차량이 순서를 다음 좌석으로 넘깁니다.** 이게 없으면 차례인 사람이 아무것도 하지 않을 때
-  순서가 영영 멈춥니다. 특히 운전석은 주행 중 화면을 만질 수 없고 음성으로도 곡을 추가할
-  수 없어서, 운전석 차례에서 전체가 막혔습니다.
-  `null` 이면 제한시간이 돌고 있지 않다는 뜻이고, 세 경우입니다 —
-  라운지 모드, 착석한 좌석이 하나뿐, 아직 아무도 폰을 연결하지 않음.
-  마지막 경우는 넘겨도 쓸 사람이 없고 차례 안내 음성만 반복되므로 일부러 세웁니다.
-- `etaSeconds`, `queueTargetMs` 는 내비 목적지가 없으면 `null`.
-- `mode`: `"NORMAL"` | `"CHARGING_LOUNGE"` (v0.2). 충전 중 정차 상태에서 라운지 모드가 켜지고,
-  **이때는 좌석 턴 규칙이 해제되어 아무 좌석이나 곡을 넣을 수 있습니다.** 차 안에 갇혀 있는
-  충전 대기 시간에는 차례를 기다리게 할 이유가 없기 때문입니다.
+- **선곡에 차례가 없습니다 (v0.6).** 앉아 있는 좌석은 누구나, 언제든, 몇 곡이든
+  넣습니다. 한 사람이 연달아 넣는 것도 막지 않습니다.
+
+  v0.5 까지는 좌석 라운드로빈으로 선곡권을 돌렸습니다. 실제로 써 보니 듣고
+  싶은 곡이 생겨도 30초를 기다려야 했고, 그 30초가 차 안에서는 그냥 어색한
+  침묵이었습니다. "내 차례에 쓸 곡" 을 고르게 되는 것도 플레이리스트가 아닙니다.
+  같이 탄 사람들은 서로 보고 있으므로 규칙보다 눈치가 먼저 작동하고,
+  그래도 불만이면 스킵 투표(과반·최소 2표)가 있습니다.
+
+  `turnSeatId` · `turnDeadlineMs` · `turnRemainingMs` · `turn.pass` · `turn.notify` ·
+  `NOT_YOUR_TURN` 은 전부 사라졌습니다.
 - `landing`: 도착 5분 이내 (v0.2). 안내용 플래그이며 큐 추가를 막지는 않습니다.
   차량은 랜딩 진입 시 음성 안내를 한 번 하고, 폰은 배너를 띄웁니다.
 - `queueTotalMs` (v0.2): 현재 큐의 총 재생 길이. `queueTargetMs` 와 비교해 "도착까지 몇 곡 더"를
@@ -153,35 +147,31 @@
 | type | payload | 차량의 검증 |
 |---|---|---|
 | `seat.claim` | `{ deviceId, seatId, nickname }` | 해당 좌석이 `occupied` 인가, 이미 다른 기기가 점유했는가 |
-| `queue.add` | `{ seatId, title, artist, externalId?, artworkUrl? }` | 지금 그 좌석의 차례인가, 좌석 프로필이 허용하는가, 연속 독점 아닌가 |
+| `queue.add` | `{ seatId, title, artist, externalId?, artworkUrl? }` | 그 좌석에 사람이 앉아 있는가, 좌석 프로필이 허용하는가 |
 | `queue.remove` | `{ seatId, itemId }` | 본인이 넣은 곡인가 |
 | `vote.skip` | `{ seatId }` | 중복 투표 아닌가, 운전자 거부권 적용 |
 | `reaction.like` | `{ seatId }` | — |
-| `turn.pass` | `{ seatId }` | 지금 그 좌석의 차례인가 |
-| `mood.accept` (v0.5) | `{ seatId }` | — (차례 무관) |
-| `mood.dismiss` (v0.5) | `{ seatId }` | — (차례 무관) |
+| `mood.accept` (v0.5) | `{ seatId }` | — |
+| `mood.dismiss` (v0.5) | `{ seatId }` | — |
 
-`mood.accept` / `mood.dismiss` 는 **차례를 확인하지 않습니다.** 차가 권한 곡을
-받아들이거나 물리는 것일 뿐, 한 사람이 선곡권을 더 갖는 것이 아니기 때문입니다.
-차례를 요구하면 정작 차례가 아닌 사람은 멋대로 들어가는 곡을 막을 수 없습니다.
+`mood.accept` / `mood.dismiss` 는 누구든 누를 수 있습니다. 차가 권한 곡을
+받아들이거나 막는 것뿐이기 때문입니다.
 
 ## 차량 → 서버 → 폰 (응답·통지)
 
 | type | payload |
 |---|---|
 | `state.sync` | 위 전체 상태 |
-| `turn.notify` | `{ seatId, deadlineMs }` — 해당 좌석 폰에 차례 알림 |
 | `drive.album` | `{ startedAt, endedAt, durationMs, tracks: [{ title, artist, requestedBySeat }], seats: [{ seatId, nickname }] }` — 주행이 끝나면 한 번 전송 (v0.2) |
-| `reject` | `{ requestType, reason, seatId? }` — `reason`: `NOT_YOUR_TURN` \| `PROFILE_BLOCKED` \| `SEAT_TAKEN` \| `DUPLICATE_VOTE` \| `DRIVING_RESTRICTED` |
+| `reject` | `{ requestType, reason, seatId? }` — `reason`: `PROFILE_BLOCKED` \| `SEAT_TAKEN` \| `DUPLICATE_VOTE` \| `DRIVING_RESTRICTED` |
 
 ### 수신자 판별 — 허브는 브로드캐스트한다
 
 허브는 차량이 보낸 메시지를 **모든 폰에 그대로 뿌립니다.** 폰별 라우팅을 하지 않습니다.
-그래서 `turn.notify` 와 `reject` 는 `seatId` 를 담고, 폰이 자기 좌석 것만 골라 씁니다.
+그래서 `reject` 는 `seatId` 를 담고, 폰이 자기 좌석 것만 골라 씁니다.
 
 ```js
 if (m.type === "reject" && (!m.seatId || m.seatId === mySeat)) showToast(m.reason);
-if (m.type === "turn.notify" && m.seatId === mySeat) showMyTurn();
 ```
 
 `seatId` 가 없는 `reject` 는 수신자를 특정할 수 없는 경우이므로 모든 폰이 표시해도 됩니다.
@@ -231,8 +221,11 @@ if (m.type === "turn.notify" && m.seatId === mySeat) showMyTurn();
   폰이 검색 결과에서 받은 커버 주소를 그대로 넘기고, 차량은 그것만 그립니다.
   차량이 다시 검색하지 않습니다. 큐레이션 목록 곡은 허브가 시작 직후 백그라운드로
   커버를 채워 두며, 못 찾으면 커버 없이 둡니다. 추가분이며 v0.3 클라이언트는 그대로 동작합니다.
+- `v0.6` — 2026-11-13. **선곡 차례를 없앴습니다.** `turnSeatId`·`turnDeadlineMs`·
+  `turnRemainingMs`·`turn.pass`·`turn.notify`·`NOT_YOUR_TURN` 제거. 앉아 있는
+  좌석은 누구나 언제든 몇 곡이든 넣습니다. **깨는 변경입니다** — 이 필드를
+  읽던 클라이언트는 같이 올려야 합니다.
 - `v0.3` — 2026-10-31. `state.sync` 에 선택 필드 `turnRemainingMs` 추가.
-  차례 제한시간이 실제로 적용됩니다. 추가분이며 v0.2 클라이언트는 그대로 동작합니다.
 - `v0.2` — 2026-10-31. `state.sync` 에 선택 필드 `mode`, `landing`, `queueTotalMs` 추가.
   차량 → 폰 메시지 `drive.album` 추가. 모두 추가분이며 v0.1 클라이언트는 그대로 동작합니다.
 - `v0.1.1` — 2026-10-31. `reject` 에 선택 필드 `seatId` 추가. 허브가 브로드캐스트하므로

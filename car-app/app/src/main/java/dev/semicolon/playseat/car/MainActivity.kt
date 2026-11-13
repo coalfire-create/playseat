@@ -52,7 +52,6 @@ class MainActivity : ComponentActivity() {
                     voiceStatus = voiceStatus,
                     canListen = micGranted && vm.canListen,
                     onDriverSkip = vm::driverSkip,
-                    onDriverPassTurn = vm::driverPassTurn,
                     onListen = vm::startListening,
                     debug = vm.fake?.let { fake ->
                         DebugActions(

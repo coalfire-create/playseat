@@ -10,7 +10,6 @@ package dev.semicolon.playseat.hub
 object MsgType {
     // 차량 → 폰
     const val STATE_SYNC = "state.sync"
-    const val TURN_NOTIFY = "turn.notify"
     const val REJECT = "reject"
 
     // 폰 → 차량
@@ -19,7 +18,6 @@ object MsgType {
     const val QUEUE_REMOVE = "queue.remove"
     const val VOTE_SKIP = "vote.skip"
     const val REACTION_LIKE = "reaction.like"
-    const val TURN_PASS = "turn.pass"
 
     // 허브가 단독 처리 (차량 경유 안 함)
     const val SEARCH_QUERY = "search.query"

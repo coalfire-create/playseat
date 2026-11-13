@@ -72,16 +72,6 @@
   .mood span{font-size:13px;color:var(--sub);min-width:0;
              overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-  /* ---------- 차례 ---------- */
-  .turn{position:relative;padding:14px 20px;font-size:14px}
-  .turn b{font-weight:600}
-  .turn.mine{background:var(--accent-soft)}
-  .turn.mine b{color:var(--accent)}
-  .turn .sub{display:block;margin-top:3px;font-size:12.5px;color:var(--sub)}
-  /* 남은 시간은 띠로. 차량 좌석 아래 띠와 같은 장치입니다 — 숫자보다 길이가 빨리 읽힙니다. */
-  .turn .gauge{position:absolute;left:0;bottom:0;height:3px;background:var(--accent);
-               transition:width .9s linear}
-
   /* ---------- 알림 띠 ----------
      차량 LoungeNotice 와 같은 모양. 색 면이 아니라 한 단 밝은 면으로 구분합니다. */
   .note{background:var(--cell2);padding:15px 20px}
@@ -107,17 +97,14 @@
   .seat.on .face{background:var(--cell)}
   .seat.on .head{background:var(--sub);opacity:.55}
   .seat.on .nm{color:var(--fg)}
-  .seat.turn .face{background:var(--accent-soft);border:2px solid var(--accent)}
-  .seat.turn .head{background:var(--accent);opacity:1}
-  .seat.turn .st{color:var(--accent)}
+  /* 지금 나오는 곡을 고른 자리. 화면에서 색을 쓰는 유일한 곳입니다. */
+  .seat.picker .face{background:var(--accent-soft);border:2px solid var(--accent)}
+  .seat.picker .head{background:var(--accent);opacity:1}
+  .seat.picker .st{color:var(--accent)}
   .seat.me .face{border-color:var(--accent)}
   .seat.pick{cursor:pointer}
   .seat.pick:active .face{background:var(--cell2)}
   /* 몇 번째로 고르는 자리인지. 좌석에 바로 붙어 있으면 따로 순서 줄을 둘 필요가 없습니다. */
-  .seat .no{position:absolute;left:6px;top:6px;width:19px;height:19px;border-radius:50%;
-            border:1px solid var(--line);display:flex;align-items:center;justify-content:center;
-            font-size:11px;font-weight:600;color:var(--sub);background:transparent}
-  .seat.turn .no{background:var(--accent);border-color:var(--accent);color:#fff}
 
   /* 메인 화면의 축약 좌석. 차 그림을 다시 그리면 화면을 다 먹습니다. */
   .cabin{background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:10px}
@@ -222,7 +209,6 @@
 
   <!-- 메인 -->
   <main id="main" hidden>
-    <div id="turnSlot"></div>
     <div id="stripSlot"></div>
 
     <section class="sec">
@@ -435,10 +421,8 @@ function connect() {
     }
     else if (m.type === "search.result") { results = m.items || []; renderResults(m); }
     else if (m.type === "drive.album") { renderAlbum(m); }
-    else if (m.type === "turn.notify" && m.seatId === mySeat) { toast("당신의 차례입니다"); }
     else if (m.type === "reject" && (!m.seatId || m.seatId === mySeat)) {
       toast({
-        NOT_YOUR_TURN:"지금은 당신의 차례가 아닙니다",
         PROFILE_BLOCKED:"이 좌석에서는 추가할 수 없습니다",
         SEAT_TAKEN:"이미 사용 중인 좌석입니다",
         DUPLICATE_VOTE:"이미 투표했습니다",
@@ -526,16 +510,13 @@ function claim(seatId) {
  */
 function seatNode(seatId, opts) {
   const s = (state && (state.seats || []).find((x) => x.seatId === seatId)) || { seatId };
-  const lounge = state && state.mode === "CHARGING_LOUNGE";
   const occupied = !!s.occupied;
   const isMine = s.deviceId === deviceId;
-  const isTurn = !lounge && state && state.turnSeatId === seatId;
+  const isPicker = state?.nowPlaying?.requestedBySeat === seatId;
   const free = occupied && !s.deviceId;
-  const order = turnOrder();
-  const no = lounge ? -1 : order.indexOf(seatId);
 
   const el = document.createElement(opts.pick && free ? "button" : "div");
-  el.className = "seat" + (occupied ? " on" : "") + (isTurn ? " turn" : "")
+  el.className = "seat" + (occupied ? " on" : "") + (isPicker ? " picker" : "")
     + (isMine ? " me" : "") + (opts.pick && free ? " pick" : "");
   if (opts.absolute) {
     const g = SEAT[seatId];
@@ -554,19 +535,10 @@ function seatNode(seatId, opts) {
     : seatId === "R1L" ? "음성" : "대기";
   face.append(nm, st);
 
-  if (no >= 0) {
-    const b = document.createElement("div"); b.className = "no"; b.textContent = no + 1;
-    face.append(b);
-  }
   el.append(head, face);
   if (opts.pick && free) el.onclick = () => claim(seatId);
   return el;
 }
-
-/** 선곡이 도는 순서. 차량 SeatId.TURN_ORDER 와 같은 순서입니다. */
-const TURN_ORDER = ["R1L", "R1R", "R2L", "R2C", "R2R"];
-const turnOrder = () => !state ? []
-  : TURN_ORDER.filter((id) => (state.seats || []).some((s) => s.seatId === id && s.occupied));
 
 /* ---------- 렌더 ---------- */
 function render() {
@@ -577,7 +549,6 @@ function render() {
 
   const driving = state.driveState === "DRIVING";
   const lounge  = state.mode === "CHARGING_LOUNGE";
-  const canAdd  = lounge || state.turnSeatId === mySeat;
 
   status();
 
@@ -609,28 +580,6 @@ function render() {
   }
   $("gate").hidden = true; $("main").hidden = false;
 
-  // 차례
-  const ts = $("turnSlot");
-  // 남은 시간이 null 이면 제한시간이 돌지 않는 상황입니다
-  // (라운지·혼자 탑승·아무도 미연결). 그때는 숫자를 띄우지 않습니다.
-  const leftMs = state.turnRemainingMs;
-  const left = leftMs != null ? `${Math.ceil(leftMs / 1000)}초` : null;
-  const pct = leftMs != null && state.turnDeadlineMs
-    ? Math.max(0, Math.min(100, (leftMs / state.turnDeadlineMs) * 100)) : 0;
-
-  if (lounge || !state.turnSeatId) ts.replaceChildren();
-  else {
-    const mine = state.turnSeatId === mySeat;
-    ts.innerHTML = `<div class="turn${mine ? " mine" : ""}">
-        <b></b><span class="sub"></span><i class="gauge"></i>
-      </div><div class="hr"></div>`;
-    ts.querySelector("b").textContent = mine ? "당신의 차례입니다" : `다음 선곡 차례 · ${label(state.turnSeatId)}`;
-    ts.querySelector(".sub").textContent = mine
-      ? (left ? `한 곡을 골라 큐에 넣어주세요 · 남은 시간 ${left}` : "한 곡을 골라 큐에 넣어주세요")
-      : (left ? `${left} 뒤 다음 좌석으로 넘어갑니다` : "곡을 고르는 중입니다");
-    ts.querySelector(".gauge").style.width = pct + "%";
-  }
-
   // 알림 띠
   const st = $("stripSlot"); st.replaceChildren();
   const note = (cls, b, s) =>
@@ -645,8 +594,8 @@ function render() {
   st.innerHTML = html;
 
   // 좌석 (축약)
-  $("seatNote").textContent = lounge ? "차례 없이 모두 바로 추가"
-    : turnOrder().length ? "번호 순으로 돌아갑니다" : "탑승을 기다리고 있습니다";
+  $("seatNote").textContent = (state.seats || []).some((x) => x.occupied)
+    ? "앉은 사람은 누구나 바로 넣습니다" : "탑승을 기다리고 있습니다";
   $("cRow1").replaceChildren(...["R1L", "R1R"].map((id) => seatNode(id, {})));
   $("cRow2").replaceChildren(...["R2L", "R2C", "R2R"].map((id) => seatNode(id, {})));
 
@@ -683,8 +632,6 @@ function render() {
     ql.innerHTML = `<li style="border:0"><span class="empty">차례인 좌석이 곡을 넣으면 여기에 쌓입니다</span></li>`;
   } else q.forEach((t, i) => ql.append(trackRow(t, { index:i + 1, by:true })));
 
-  // 검색 결과의 추가 버튼 상태를 차례에 맞춰 갱신
-  for (const b of $("results").querySelectorAll("button")) b.disabled = !canAdd;
   $("foot").textContent = `${label(mySeat)} · ${nickname || deviceId}`;
 }
 
@@ -753,8 +700,6 @@ function renderSuggestions() {
 
 function renderResults(msg) {
   const ul = $("results"); ul.replaceChildren();
-  const canAdd = state && (state.mode === "CHARGING_LOUNGE" || state.turnSeatId === mySeat);
-
   if (!results.length) {
     ul.innerHTML = `<li style="border:0"><span class="empty">결과가 없습니다. 다른 검색어로 해보세요.</span></li>`;
     $("srcNote").textContent = "";
@@ -763,7 +708,7 @@ function renderResults(msg) {
   results.forEach((t) => {
     ul.append(trackRow(t, { tail: () => {
       const b = document.createElement("button");
-      b.className = "sm primary"; b.textContent = "추가"; b.disabled = !canAdd;
+      b.className = "sm primary"; b.textContent = "추가";
       b.onclick = () => {
         // 낙관적 업데이트를 하지 않습니다. 다음 state.sync 로만 반영됩니다.
         // 커버 주소를 같이 넘깁니다. 차량 화면이 다시 찾지 않도록 폰이 들고 가는 값입니다.

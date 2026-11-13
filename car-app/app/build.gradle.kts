@@ -93,7 +93,6 @@ dependencies {
     implementation(libs.pleos.navihelper)
     implementation(libs.pleos.tts)
     implementation(libs.pleos.stt)
-    implementation(libs.pleos.fusedlocation)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

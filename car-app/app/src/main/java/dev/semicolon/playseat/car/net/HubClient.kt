@@ -5,7 +5,6 @@ import dev.semicolon.playseat.car.session.DriveAlbumMsg
 import dev.semicolon.playseat.car.session.PhoneRequest
 import dev.semicolon.playseat.car.session.RejectMsg
 import dev.semicolon.playseat.car.session.SessionState
-import dev.semicolon.playseat.car.session.TurnNotifyMsg
 import dev.semicolon.playseat.car.session.TrackDto
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -56,7 +55,6 @@ class HubClient(
 
     fun send(reject: RejectMsg) = sendRaw(json.encodeToString(RejectMsg.serializer(), reject))
 
-    fun send(notify: TurnNotifyMsg) = sendRaw(json.encodeToString(TurnNotifyMsg.serializer(), notify))
 
     fun send(album: DriveAlbumMsg) = sendRaw(json.encodeToString(DriveAlbumMsg.serializer(), album))
 

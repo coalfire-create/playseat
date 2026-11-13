@@ -9,11 +9,12 @@ import dev.semicolon.playseat.car.mood.MoodEngine
 import dev.semicolon.playseat.car.net.HubClient
 import dev.semicolon.playseat.car.playback.PlaybackGateway
 import dev.semicolon.playseat.car.playback.PlaybackGatewayFactory
+import dev.semicolon.playseat.car.session.AutoPick
 import dev.semicolon.playseat.car.session.DriveAlbumMsg
 import dev.semicolon.playseat.car.session.PhoneRequest
 import dev.semicolon.playseat.car.session.SessionEngine
 import dev.semicolon.playseat.car.session.SessionState
-import dev.semicolon.playseat.car.session.TurnNotifyMsg
+import dev.semicolon.playseat.car.vehicle.DriveState
 import dev.semicolon.playseat.car.vehicle.FakeVehicleSignalSource
 import dev.semicolon.playseat.car.vehicle.PleosVehicleSignalSource
 import dev.semicolon.playseat.car.vehicle.SeatId
@@ -90,16 +91,20 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { vehicle.snapshot.collect { engine.onVehicle(it) } }
         viewModelScope.launch { engine.state.collect { hub.send(it) } }
 
-        // 차례가 바뀔 때만 알림과 안내 음성을 냅니다
+        // 곡이 바뀌면 누가 고른 무엇인지 읽어 줍니다. 주행 중에만입니다 —
+        // 정차 중에는 운전자도 화면을 보면 되고, 매번 말하면 시끄럽습니다.
         viewModelScope.launch {
-            engine.state.map { it.turnSeatId }.distinctUntilChanged().collect { seatId ->
-                if (seatId == null) return@collect
-                hub.send(TurnNotifyMsg(ts = System.currentTimeMillis(), seatId = seatId))
-                voice.speak(
-                    if (seatId == SeatId.R1L) "운전석 차례입니다. 말씀하세요."
-                    else "${seatLabel(seatId)} 차례입니다."
-                )
-            }
+            engine.state
+                .map { it.nowPlaying?.itemId to it.driveState }
+                .distinctUntilChanged()
+                .collect { (_, drive) ->
+                    val np = engine.state.value.nowPlaying ?: return@collect
+                    if (drive != DriveState.DRIVING.name) return@collect
+                    voice.speak(
+                        if (np.requestedBySeat == AutoPick.SEAT) "다음 곡은 ${np.title} 입니다."
+                        else "다음 곡은 ${seatLabel(np.requestedBySeat)}에서 고른 ${np.title} 입니다."
+                    )
+                }
         }
 
         // 곡이 바뀔 때만 재생을 다시 시작합니다. 위치 갱신으로는 재시작하지 않습니다.
@@ -186,7 +191,6 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- 운전자 조작: 주행 중 열려 있는 유일한 경로 ----------
 
     fun driverSkip() = engine.driverSkip()
-    fun driverPassTurn() = engine.driverPassTurn()
 
     /** 음성 버튼. 한 번 눌러 한 명령을 받습니다. */
     fun startListening() {
@@ -201,10 +205,6 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
                     VoiceCommands.Command.NEXT_TRACK -> {
                         _voiceStatus.value = "다음 곡"
                         engine.driverSkip()
-                    }
-                    VoiceCommands.Command.PASS_TURN -> {
-                        _voiceStatus.value = "차례를 넘겼습니다"
-                        engine.driverPassTurn()
                     }
                     VoiceCommands.Command.LIKE -> {
                         _voiceStatus.value = "저장했습니다"

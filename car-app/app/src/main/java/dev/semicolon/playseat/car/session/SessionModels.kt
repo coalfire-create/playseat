@@ -40,28 +40,18 @@ data class SessionState(
     val sessionId: String,
     val driveState: String = "PARKED",
     val seats: List<SeatDto> = emptyList(),
-    val turnSeatId: String? = null,
-    val turnDeadlineMs: Int = TURN_DEADLINE_MS,
     val nowPlaying: TrackDto? = null,
     val queue: List<TrackDto> = emptyList(),
     val etaSeconds: Int? = null,
     val queueTargetMs: Long? = null,
     val skipVotes: List<String> = emptyList(),
     val skipThreshold: Int = 2,
-    /** NORMAL | CHARGING_LOUNGE. 라운지 모드에서는 좌석 턴 규칙이 해제됩니다. */
+    /** NORMAL | CHARGING_LOUNGE. 충전 중임을 알리는 표시용입니다. */
     val mode: String = SessionMode.NORMAL,
     /** 도착 5분 이내. 안내용이며 큐 추가를 막지는 않습니다. */
     val landing: Boolean = false,
     /** 현재 큐의 총 재생 길이. queueTargetMs 와 비교해 "도착까지 몇 곡 더"를 보여줍니다. */
     val queueTotalMs: Long = 0,
-    /**
-     * 지금 차례인 좌석에 남은 시간 (v0.3).
-     *
-     * `null` 이면 제한시간이 돌고 있지 않다는 뜻입니다. 라운지 모드이거나,
-     * 돌릴 좌석이 하나뿐이거나, 아직 아무도 폰을 연결하지 않은 경우입니다.
-     */
-    val turnRemainingMs: Int? = null,
-
     /**
      * 지금 차 안의 분위기 (v0.5).
      *
@@ -83,7 +73,6 @@ data class SessionState(
     val suggestAutoAddMs: Int? = null,
 ) {
     companion object {
-        const val TURN_DEADLINE_MS = 30_000
 
         /**
          * 큐가 빈 채로 이만큼 지나면 추천을 띄웁니다.
@@ -159,29 +148,19 @@ data class RejectMsg(
     val seatId: String? = null,
 )
 
-@Serializable
-data class TurnNotifyMsg(
-    val type: String = "turn.notify",
-    val ts: Long,
-    val seatId: String,
-    val deadlineMs: Int = SessionState.TURN_DEADLINE_MS,
-)
-
 object ReqType {
     const val SEAT_CLAIM = "seat.claim"
     const val QUEUE_ADD = "queue.add"
     const val QUEUE_REMOVE = "queue.remove"
     const val VOTE_SKIP = "vote.skip"
     const val REACTION_LIKE = "reaction.like"
-    const val TURN_PASS = "turn.pass"
 
-    /** 추천을 지금 담기 / 이번에는 그만두기 (v0.5). 차례와 무관합니다. */
+    /** 추천을 지금 담기 / 이번에는 그만두기 (v0.5). */
     const val MOOD_ACCEPT = "mood.accept"
     const val MOOD_DISMISS = "mood.dismiss"
 }
 
 object RejectReason {
-    const val NOT_YOUR_TURN = "NOT_YOUR_TURN"
     const val PROFILE_BLOCKED = "PROFILE_BLOCKED"
     const val SEAT_TAKEN = "SEAT_TAKEN"
     const val DUPLICATE_VOTE = "DUPLICATE_VOTE"

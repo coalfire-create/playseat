@@ -10,8 +10,17 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * 세션의 단일 진실 공급원.
  *
- * 턴 순서, 좌석 권한, 스킵 과반을 모두 여기서 판정합니다. 서버는 중계만 하므로
- * 이 클래스가 곧 플레이시트의 규칙입니다. 안드로이드 의존성이 없어 단위 테스트가 됩니다.
+ * 좌석 권한, 스킵 과반, 분위기 추천을 모두 여기서 판정합니다. 서버는 중계만
+ * 하므로 이 클래스가 곧 플레이시트의 규칙입니다. 안드로이드 의존성이 없어
+ * 단위 테스트가 됩니다.
+ *
+ * 선곡은 차례로 돌리지 않습니다
+ *   앉은 사람은 누구나, 언제든, 몇 곡이든 넣습니다. 차례를 돌리면 "지금 듣고
+ *   싶은 곡" 이 아니라 "내 차례에 쓸 곡" 을 고르게 되고, 듣고 싶은 것이 생겨도
+ *   30초를 기다려야 합니다. 차 안에서 그 30초는 그냥 어색한 침묵입니다.
+ *   한 사람이 연달아 넣는 것도 막지 않습니다 — 같이 탄 사람들은 서로 보고
+ *   있으므로, 규칙보다 눈치가 먼저 작동합니다. 그래도 불만이면 스킵 투표가
+ *   있습니다(과반, 최소 2표).
  */
 class SessionEngine(
     sessionId: String,
@@ -33,9 +42,6 @@ class SessionEngine(
     // 현재 주행 구간의 기록. 정차 → 주행에서 시작하고, 주행 → 정차에서 앨범으로 내보냅니다.
     private var tripStartedAt: Long? = null
     private val tripTracks = mutableListOf<AlbumTrack>()
-
-    // 지금 차례가 시작된 시각. commit 에서 차례가 바뀔 때마다 다시 잡습니다.
-    private var turnStartedAt: Long? = null
 
     // 큐가 빈 채로 흐른 시간을 재기 위한 시각. 곡이 들어오면 지웁니다.
     private var emptySince: Long? = null
@@ -105,11 +111,6 @@ class SessionEngine(
             emitAlbum(next)
         }
 
-        // 차례였던 사람이 내렸거나 아직 차례가 없으면 다시 계산합니다
-        if (next.turnSeatId == null || next.turnSeatId in leftSeats) {
-            next = next.copy(turnSeatId = nextTurn(next, from = null))
-        }
-
         commit(next)
     }
 
@@ -172,19 +173,13 @@ class SessionEngine(
                 if (!seat.occupied) return reject(RejectReason.SEAT_TAKEN)
                 if (seat.deviceId != null && seat.deviceId != req.deviceId) return reject(RejectReason.SEAT_TAKEN)
 
-                var next = cur.copy(seats = cur.seats.map {
+                commit(cur.copy(seats = cur.seats.map {
                     if (it.seatId != seatId) it
                     else it.copy(deviceId = req.deviceId, nickname = req.nickname, connected = true)
-                })
-                if (next.turnSeatId == null) next = next.copy(turnSeatId = nextTurn(next, from = null))
-                commit(next)
+                }))
             }
 
-            ReqType.MOOD_ACCEPT -> {
-                // 차례와 무관합니다. 차가 권한 곡을 "그래 틀어" 하는 것뿐이고,
-                // 한 사람이 선곡권을 더 갖는 것이 아닙니다.
-                commit(acceptSuggestions(cur))
-            }
+            ReqType.MOOD_ACCEPT -> commit(acceptSuggestions(cur))
 
             ReqType.MOOD_DISMISS -> {
                 snoozedAt = now()
@@ -193,20 +188,16 @@ class SessionEngine(
             }
 
             ReqType.QUEUE_ADD -> {
-                // 라운지 모드에서는 착석한 아무 좌석이나 바로 넣을 수 있습니다
-                val lounge = cur.mode == SessionMode.CHARGING_LOUNGE
-                if (!lounge && cur.turnSeatId != seatId) return reject(RejectReason.NOT_YOUR_TURN)
+                // 앉아 있으면 누구나, 언제든, 몇 곡이든 넣습니다. 차례도 좌석별
+                // 상한도 두지 않습니다 — 듣고 싶은 곡을 듣고 싶을 때 넣는 것이
+                // 플레이리스트이고, 순서를 강제하면 그게 아니게 됩니다.
                 val seat = cur.seats.firstOrNull { it.seatId == seatId } ?: return reject(RejectReason.SEAT_TAKEN)
-                if (lounge && !seat.occupied) return reject(RejectReason.SEAT_TAKEN)
+                if (!seat.occupied) return reject(RejectReason.SEAT_TAKEN)
                 val title = req.title ?: return reject(RejectReason.PROFILE_BLOCKED)
 
                 // 아동 좌석은 아주 긴 곡을 넣지 못합니다 (좌석 프로필 제한의 최소 구현)
                 val duration = req.durationMs ?: DEFAULT_DURATION_MS
                 if (seat.profile == SeatProfile.CHILD && duration > CHILD_MAX_DURATION_MS) {
-                    return reject(RejectReason.PROFILE_BLOCKED)
-                }
-                // 한 좌석이 큐를 독점하지 못하게 막습니다
-                if (cur.queue.count { it.requestedBySeat == seatId } >= MAX_PENDING_PER_SEAT) {
                     return reject(RejectReason.PROFILE_BLOCKED)
                 }
 
@@ -220,7 +211,6 @@ class SessionEngine(
                 )
                 var next = cur.copy(queue = cur.queue + track)
                 if (next.nowPlaying == null) next = playNext(next)
-                if (!lounge) next = next.copy(turnSeatId = nextTurn(next, from = seatId))
                 commit(next)
             }
 
@@ -243,11 +233,6 @@ class SessionEngine(
                 commit(next)
             }
 
-            ReqType.TURN_PASS -> {
-                if (cur.turnSeatId != seatId) return reject(RejectReason.NOT_YOUR_TURN)
-                commit(cur.copy(turnSeatId = nextTurn(cur, from = seatId)))
-            }
-
             ReqType.REACTION_LIKE -> Unit // 집계만, 상태 변화 없음
 
             else -> Unit
@@ -260,40 +245,11 @@ class SessionEngine(
     /** 운전자의 "다음 곡". 주행 중에도 허용되는 유일한 경로입니다. */
     fun driverSkip() = commit(playNext(_state.value))
 
-    /** 운전자의 "내 차례 넘겨". */
-    fun driverPassTurn() {
-        val cur = _state.value
-        if (cur.turnSeatId == SeatId.R1L) commit(cur.copy(turnSeatId = nextTurn(cur, from = SeatId.R1L)))
-    }
-
     /** 재생이 끝났을 때. */
     fun trackFinished() = commit(playNext(_state.value))
 
-    // ---------- 차례 제한시간 ----------
-
-    /**
-     * 1초마다 호출합니다. 차례인 좌석이 제한시간 안에 아무것도 하지 않으면 순서를 넘깁니다.
-     *
-     * 이게 없으면 순서가 영영 멈춥니다. 특히 운전석은 주행 중 화면을 만질 수 없고
-     * 음성으로도 곡을 추가할 수 없어서, 운전석 차례에서 전체가 막혔습니다.
-     *
-     * 다만 아무도 폰을 연결하지 않았으면 돌려봐야 아무도 쓰지 못하므로 세우고,
-     * 이때마다 차례 안내 음성이 나가는 것도 막습니다.
-     */
-    fun tick() {
-        tickSuggestions()
-        val cur = _state.value
-        if (!countdownRuns(cur)) {
-            if (cur.turnRemainingMs != null) commit(cur)
-            return
-        }
-        val started = turnStartedAt ?: now().also { turnStartedAt = it }
-        if (now() - started >= cur.turnDeadlineMs) {
-            commit(cur.copy(turnSeatId = nextTurn(cur, from = cur.turnSeatId)))
-        } else {
-            commit(cur)
-        }
-    }
+    /** 1초마다 호출합니다. 지금은 추천 타이머만 돕니다. */
+    fun tick() = tickSuggestions()
 
     /**
      * 음악이 없을 때 차가 끼어드는 지점.
@@ -336,18 +292,6 @@ class SessionEngine(
         onNeedSuggestions?.invoke(mood, kids, emptyList())
     }
 
-    /**
-     * 제한시간을 돌릴 상황인지.
-     *
-     * 라운지 모드는 턴 규칙 자체가 풀려 있고, 돌릴 좌석이 하나뿐이면 넘겨도 제자리입니다.
-     * 아무도 폰을 연결하지 않았으면 누구에게 넘겨도 쓸 수 없으니 그대로 둡니다.
-     */
-    private fun countdownRuns(s: SessionState): Boolean =
-        s.mode == SessionMode.NORMAL &&
-            s.turnSeatId != null &&
-            s.seats.count { it.occupied } >= 2 &&
-            s.seats.any { it.connected }
-
     /** 재생 위치 갱신 (PlaybackGateway 가 주기적으로 호출). */
     fun updatePosition(positionMs: Int) {
         val cur = _state.value
@@ -358,18 +302,9 @@ class SessionEngine(
     // ---------- 내부 ----------
 
     private fun commit(next: SessionState) {
-        // 차례가 바뀌었으면 제한시간을 처음부터 다시 셉니다.
-        if (next.turnSeatId != _state.value.turnSeatId) {
-            turnStartedAt = if (next.turnSeatId == null) null else now()
-        }
-        val remaining = turnStartedAt
-            ?.takeIf { countdownRuns(next) }
-            ?.let { (next.turnDeadlineMs - (now() - it)).coerceIn(0L, next.turnDeadlineMs.toLong()).toInt() }
-
         _state.value = next.copy(
             ts = now(),
             queueTotalMs = next.queue.sumOf { it.durationMs.toLong() },
-            turnRemainingMs = remaining,
         )
     }
 
@@ -414,20 +349,11 @@ class SessionEngine(
         )
     }
 
-    /** 착석한 좌석들 사이에서 라운드로빈. 참여(폰 연결) 여부와 무관하게 좌석 기준입니다. */
-    private fun nextTurn(s: SessionState, from: String?): String? {
-        val eligible = SeatId.TURN_ORDER.filter { id -> s.seats.any { it.seatId == id && it.occupied } }
-        if (eligible.isEmpty()) return null
-        val at = eligible.indexOf(from)
-        return eligible[(at + 1) % eligible.size]
-    }
-
     companion object {
         const val DEFAULT_DURATION_MS = 210_000
         /** 도착 몇 초 전부터 랜딩 구간으로 볼지. */
         const val LANDING_SECONDS = 300
         const val CHILD_MAX_DURATION_MS = 400_000
-        const val MAX_PENDING_PER_SEAT = 2
 
         fun defaultProfile(seatId: String) = when (seatId) {
             SeatId.R1L -> SeatProfile.DRIVER

@@ -189,8 +189,7 @@ carShot("01_차량_정차_좌석도");
 await openPhone({ claimed: false });
 await phone?.shot("02_폰_좌석선택");
 
-// 선곡 순서는 운전석부터 돕니다. 운전석은 폰으로 곡을 넣지 않으므로
-// 첫 차례 동안 큐가 비어 있고, 바로 거기서 '차가 먼저 권하는' 장면이 나옵니다.
+// 타자마자는 큐가 비어 있습니다. 거기서 '차가 먼저 권하는' 장면이 나옵니다.
 console.log("2. 추천 — 아무도 안 넣을 때");
 for (const p of CAST) phones.push(await new Phone(p).connect());
 
@@ -215,15 +214,13 @@ await phone?.shot("04_폰_추천");
 phones.forEach((p) => p.dismissSuggestion());
 await sleep(2000);
 
-console.log("3. 좌석 턴 — 사람이 고른 곡");
-for (const [who, q] of [["엄마", "아이유"], ["서아", "아기상어"]]) {
-  const p = phones.find((x) => x.nickname === who);
-  for (let i = 0; i < 40 && p.state?.turnSeatId !== p.seatId; i++) await sleep(1000);
-  await p.add(q);
-  await sleep(1500);
+console.log("3. 사람이 고른 곡");
+for (const [who, q] of [["엄마", "아이유"], ["서아", "아기상어"], ["서아", "뽀로로"]]) {
+  await phones.find((x) => x.nickname === who).add(q);
+  await sleep(1800);
 }
 await sleep(2000);
-carShot("05_차량_선곡_대기열");
+carShot("05_차량_대기열");
 await openPhone({ claimed: true });
 await phone?.shot("06_폰_메인");
 
