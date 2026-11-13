@@ -1,98 +1,151 @@
 # 플레이시트 (PlaySeat)
 
-차에 타는 순간 모든 좌석이 DJ 부스가 되는 Pleos Connect 차량용 앱입니다.
+차에 타는 순간 **모든 좌석이 DJ 부스가 되는** Pleos Connect 차량용 앱입니다.
 좌석 착석 신호로 탑승자를 자동 인식해, 운전자와 동승자가 서로 다른 음악 앱을 쓰더라도
 하나의 플레이리스트를 함께 만들고 함께 조작합니다.
 
-현대자동차그룹 차량용 앱 개발 공모전 출품작 (대학생 부문).
+현대자동차그룹 차량용 앱 개발 공모전 출품작 (대학(원)생 부문 · 팀 Semicolon).
+
+| 차량 디스플레이 | 동승자 폰 |
+|---|---|
+| ![차량 화면](docs/screens/05_차량_선곡_대기열.png) | ![폰 화면](docs/screens/06_폰_메인.png) |
+
+전체 화면은 [`docs/screens/`](docs/screens/) 에 있습니다.
+
+## 한 줄로
+
+> 차량의 음악은 사실상 운전자 한 사람의 것입니다. 그런데 그 운전자는 주행 중에
+> 선곡을 하면 안 됩니다. **조작 권한(운전자)과 조작 가능성(동승자)이 어긋나 있습니다.**
+> 플레이시트는 선곡권을 헤드유닛에서 좌석으로 분산하고, 운전자는 목소리로만 참여합니다.
 
 ## 핵심 동작
 
-- **좌석이 곧 입장권** — 도어 개폐 후 착석이 감지되면 그 좌석이 세션 슬롯이 됩니다.
-  초대·세션 개설 절차가 없습니다. (`CAR_SEATS`, `CAR_DOORS`)
-- **좌석별 턴** — 선착순 큐가 아니라 좌석 라운드로빈으로 선곡권을 분배합니다.
-- **주행하면 조작 권한이 이사한다** — 주행 중 운전자 화면은 잠기고, 조작 권한이
-  동승자 폰으로 이전됩니다. 운전자는 음성으로만 참여합니다. (`CAR_DRIVE`, STT/TTS)
-- **경로에 맞춰 끝나는 플레이리스트** — 잔여 ETA에 큐 길이를 맞춥니다. (NaviHelper)
+- **좌석이 곧 입장권** — 착석이 감지되면 그 좌석이 세션 슬롯이 됩니다. 초대·세션 개설
+  절차가 없습니다. 폰은 최초 1회 QR 스캔만 하면 다음부터 자동 재연결됩니다. (`SEAT_OCCUPANCY`)
+- **좌석별 턴** — 선착순 큐가 아니라 좌석 라운드로빈입니다. 좌석 위 번호가 곧 순서이고,
+  제한시간이 지나면 다음 좌석으로 넘어갑니다.
+- **주행하면 조작 권한이 이사한다** — 주행 중 운전자 화면은 '지금 곡 + 버튼 2개'로 축약되고,
+  검색·목록·키보드가 잠깁니다. 잠긴 권한은 동승자 폰으로 이전됩니다. 운전자는 음성으로만
+  참여합니다. (`GEAR_SELECTION` · STT/TTS)
+- **분위기를 차에서 읽는다** — 와이퍼가 움직이면 비, 전조등이 켜지면 어둠, 조향이 계속
+  흔들리면 굽잇길. 날씨 API도 지도 API도 쓰지 않습니다. 판정 결과는 화면 배경·폰 배경·
+  **실내 앰비언트 조명** 세 곳에서 같은 색으로 나타납니다.
+  (`WINDSHIELD_WIPERS_SWITCH` · `EXTERIOR_LIGHTS_MODE` · `PERF_STEERING_ANGLE`)
+- **아무도 안 넣으면 차가 권한다** — 재생과 큐가 모두 12초 비면 분위기에 맞는 곡을
+  권하고, 20초 카운트다운 뒤 자동으로 담습니다. 누구든 차례와 상관없이 멈출 수 있습니다.
+- **경로에 맞춰 끝나는 플레이리스트** — 잔여 ETA에 큐 길이를 맞추고, 도착 5분 전부터
+  랜딩 구간으로 들어갑니다. (NaviHelper)
+- **도착하면 남는 것** — 드라이브 앨범 카드가 각자 폰으로 전달됩니다.
 
-음원은 직접 재생하지 않습니다. 선곡은 '요청'으로 수집하고, 실제 재생은 AAOS 표준
-MediaSession/MediaController로 차량의 음악 앱에 위임합니다.
+음원을 직접 재생하지 않습니다. 선곡은 '요청'으로 모으고, 실제 재생은 AAOS 표준
+MediaSession/MediaController로 차량의 음악 앱에 위임하는 구조입니다.
+음원 라이선스를 자체 보유하지 않으므로 저작권 리스크 없이 단계적으로 확장할 수 있습니다.
+
+## 지금 어디까지 동작하는가
+
+적혀 있다고 동작하는 것은 아니므로, 확인한 범위를 그대로 적습니다.
+
+| 영역 | 상태 | 확인 방법 |
+|---|---|---|
+| 좌석 착석 → 세션 슬롯 | **에뮬레이터 실기 동작** | Virtual Console 로 `SEAT_OCCUPANCY` 주입 |
+| 기어 → 주행/정차 UI 전환 | **에뮬레이터 실기 동작** | 기어 D/P 주입 |
+| 충전 → 라운지 모드 | **에뮬레이터 실기 동작** | 충전구·충전 스위치 주입 |
+| 와이퍼·전조등·조향 → 분위기 판정 | **에뮬레이터 실기 동작** | 신호별 주입, 앰비언트 조명 색 변화까지 확인 |
+| 좌석 턴·제한시간·스킵 과반·좌석 프로필 | 동작 | 단위 테스트 (차량 68 / 허브 32, 전부 통과) |
+| 분위기 추천·자동 담기 | 동작 | 단위 테스트 + 실기 |
+| 곡 검색 (큐레이션 74곡 + Deezer 보완) | 동작 | 단위 테스트 + 검색어 실측 |
+| 드라이브 앨범 | 동작 | 실기 |
+| 운전자 음성 조작 | 동작 (Android 표준 TTS/STT) | 실기 |
+| ETA → 큐 길이·랜딩 구간 | **부분** — NaviHelper 연결·리스너 등록까지. 실제 경로 주행 미검증 | 에뮬레이터 기본 위치가 국내가 아니라 경로를 만들지 못했습니다 |
+| 재생 | **시뮬레이션** — 시간만 흐릅니다. MediaSession 위임은 미구현 | 설계상 2단계 |
+
+마지막 두 줄은 일부러 남겨 둔 것입니다. 없는 신호를 쓰는 척하면 실차에서 그 기능만
+조용히 죽습니다. 같은 이유로 외기온(`ENV_OUTSIDE_TEMPERATURE`)은 VHAL 에는 있지만
+SDK 공개 API 에 없어서 쓰지 않았습니다.
+
+## 직접 돌려 보기
+
+### 차량 앱 없이 (터미널 2개, 1분)
+
+```bash
+cd hub-server && ./gradlew run          # 허브 + 동승자 웹 (8080)
+node demo/mock-car.mjs                  # 차량 앱 목. d=주행전환 1~5=좌석토글 n=다음곡
+```
+
+브라우저로 `http://localhost:8080` 을 열고 좌석을 고른 뒤 곡을 검색해 추가합니다.
+`d` 를 누르면 조작 권한이 폰으로 넘어오는 동작을 볼 수 있습니다.
+
+### 에뮬레이터로 (실제 차량 신호)
+
+```bash
+# 1. Pleos Connect AVD 실행 후
+adb install -r --user 10 "apk/Semicolon_플레이시트_release.apk"
+adb shell am start --user 10 -n dev.semicolon.playseat.car/.MainActivity
+adb forward tcp:8088 tcp:8088           # Virtual Console
+
+# 2. 허브
+cd hub-server && ./gradlew run
+
+# 3. 시연 시나리오 자동 실행 (약 4분, 손으로 누를 것 없음)
+node demo/scenario.mjs
+```
+
+디스플레이는 **사용자 10번**에 붙어 있습니다. 기본 사용자(0번)에 설치하면 화면에 뜨지 않습니다.
+
+| 스크립트 | 하는 일 |
+|---|---|
+| `demo/scenario.mjs` | 탑승 → 선곡 → 주행 → 비 → 굽잇길 → 터널 → 추천 → 도착 → 충전 라운지 자동 재생 |
+| `demo/shots.mjs` | 화면 시안 13장을 같은 장면에서 다시 찍기 |
+| `demo/console.mjs` | Virtual Console 신호 주입 (`--probe` 로 주입 가능 항목 확인) |
+| `demo/mock-car.mjs` | 에뮬레이터 없이 차량 앱 흉내 |
+
+### 빌드와 테스트
+
+```bash
+cd car-app
+echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
+./gradlew :app:testDebugUnitTest :app:assembleRelease
+
+cd ../hub-server && ./gradlew test
+```
+
+서명 키(`car-app/keystore.properties`, `*.jks`)는 저장소에 없습니다.
+키가 없으면 서명 없는 release APK 가 만들어집니다 — 빌드는 됩니다.
 
 ## 저장소 구조
 
 | 경로 | 내용 |
 |---|---|
 | `car-app/` | Android 차량 앱 (Kotlin, Jetpack Compose, Pleos Connect SDK) |
-| `hub-server/` | Ktor WebSocket 허브 (차량 ↔ 동승자 폰 중계, 곡 검색) |
+| `hub-server/` | Ktor WebSocket 허브 — 중계 · 곡 검색 · 분위기별 추천 |
 | `passenger-web/` | 동승자 웹앱 (설치 불필요, QR로 진입) |
-| `demo/` | Pleos Emulator Virtual Console 자동 조작·녹화 스크립트 |
-| `contract/` | 차량 앱 ↔ 서버 ↔ 웹앱 통신 계약 |
+| `demo/` | 시연 시나리오·화면 캡처·Virtual Console 자동화 |
+| `contract/` | 차량 앱 ↔ 서버 ↔ 웹앱 통신 계약 (v0.5) |
 | `apk/` | 제출용 release APK |
-| `docs/` | 개발 계획·환경 안내 |
+| `docs/screens/` | 화면 시안 |
+| `docs/` | 환경·검증·남은 일 |
 
-## 개발 환경
+규모: 차량 앱 3,457줄 + 테스트 915줄 / 허브 957줄 + 테스트 275줄 / 웹 804줄 / 시연 992줄.
+테스트 100개 전부 통과 (차량 68 · 허브 32).
 
-| 항목 | 값 |
-|---|---|
-| 플랫폼 | Pleos Connect (Android Automotive OS 기반) |
-| 언어 / UI | Kotlin, Jetpack Compose + Material 3 |
-| Android SDK | min 28 / compile·target 35 |
-| JDK | 17 |
-| Gradle / AGP | 8.x |
-| 서버 | Kotlin + Ktor (WebSocket) |
-| 검증 | Pleos Connect Emulator (Virtual Console로 신호 주입) |
+## 설계에서 지킨 것
 
-## 실행 방법
+1. **차량 앱이 단일 진실 공급원입니다.** 허브는 중계·검색·추천만 하고 판정하지 않습니다.
+   동승자 웹은 `state.sync` 를 그대로 그립니다 — 턴 순서나 스킵 과반을 폰에서 계산하지
+   않고, 낙관적 업데이트도 하지 않습니다. 양쪽이 같은 것을 두 번 계산하면 반드시 어긋납니다.
+2. **차량 SDK 는 `vehicle/`·`voice/` 패키지 안에만 들어갑니다.** 세션 엔진은 값 객체만
+   받으므로 에뮬레이터 없이 모든 조합을 단위 테스트로 돌립니다.
+3. **차량 화면과 폰 화면이 같은 디자인 언어를 씁니다.** 색·면 나누는 방식·타이포를
+   Pleos 시스템 UI 에서 뽑아 양쪽에 같이 적용했습니다. 헤드유닛은 앱 하나를 쓰는
+   기기가 아니라서, 우리 앱만 다른 언어를 쓰면 '나중에 얹은 것'으로 보입니다.
+4. **주행 중 제약을 기능으로 바꿉니다.** 주의 분산 규제를 피해야 할 제약이 아니라,
+   '옆 사람에게 넘긴다'는 설계의 근거로 씁니다. `distractionOptimized` 를 선언하고
+   주행 중 터치 타깃을 2개로 제한합니다.
 
-터미널 2개와 브라우저로 전체 루프를 확인할 수 있습니다. 차량 앱 없이도 됩니다.
+## 문서
 
-```bash
-# 1 — 허브 서버 (동승자 웹앱도 함께 서빙)
-cd hub-server && ./gradlew run
-
-# 2 — 차량 앱 목(mock). 키: d=주행전환 1~5=좌석토글 n=다음곡
-node demo/mock-car.mjs
-```
-
-브라우저에서 `http://localhost:8080` 을 열고 좌석을 선택한 뒤 곡을 검색해 추가합니다.
-`d` 를 눌러 주행 상태로 바꾸면 조작 권한이 폰으로 넘어오는 동작을 볼 수 있습니다.
-
-실제 차량 앱:
-
-```bash
-cd car-app
-echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # 최초 1회
-./gradlew :app:assembleDebug :app:testDebugUnitTest
-```
-
-Pleos Connect AVD를 띄운 뒤 Android Studio에서 Run 합니다.
-에뮬레이터에서 호스트 PC는 `10.0.2.2` 로 접근합니다.
-
-## 처음 오셨다면
-
-- 서버·웹 담당: [`docs/ONBOARDING.md`](docs/ONBOARDING.md)
-- **남은 일과 담당: [`docs/REMAINING.md`](docs/REMAINING.md)**
-- 분담 설계 배경: [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
 - 통신 계약: [`contract/protocol.md`](contract/protocol.md) — 맨 앞의 구현 상태표를 먼저 보세요
+- 에뮬레이터 환경 구성: [`docs/SETUP.md`](docs/SETUP.md)
+- 실기 검증 기록: [`docs/VERIFY.md`](docs/VERIFY.md)
+- 남은 일과 담당: [`docs/REMAINING.md`](docs/REMAINING.md)
 - 작업 규칙: [`CONTRIBUTING.md`](CONTRIBUTING.md)
-
-## 현재 진행 상태
-
-| 항목 | 상태 |
-|---|---|
-| 통신 계약 (`contract/protocol.md`) | v0.2 — 모든 메시지 양방향 동작 |
-| 허브 서버 중계 | 동작. 통합 테스트 v0.1 9/9 · v0.2 8/8 |
-| 곡 검색 | **스텁** (고정 20곡) — 교체 대상 |
-| 동승자 웹앱 | 좌석 참여·검색·큐·투표·라운지·랜딩·드라이브 앨범 표시 |
-| 차량 앱 세션 엔진 | 동작. 단위 테스트 31/31 |
-| 차량 앱 화면 | 좌석 배치도·QR·주행 중 축약·랜딩·라운지·앨범 카드 |
-| 좌석 턴 · 스킵 과반 · 좌석 프로필 제한 | 동작 |
-| 충전 라운지 모드 · 랜딩 구간 · 드라이브 앨범 | 동작 |
-| 운전자 음성 조작 | Android 표준 TTS/STT 로 동작 |
-| 재생 | 시뮬레이션 (시간만 흐름). MediaSession 위임 미구현 |
-| Pleos SDK 연결 | **미완** — Vehicle·NaviHelper·TTS·STT 모두 자리만 |
-
-## 통신 계약
-
-차량 앱과 동승자 웹앱의 유일한 접점은 `contract/protocol.md` 입니다.
-변경은 양쪽 합의 후 PR로만 진행합니다.

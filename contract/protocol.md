@@ -1,10 +1,10 @@
 # 플레이시트 통신 계약 v0.5
 
-> 차량 앱(이정한) ↔ 허브 서버(이용준) ↔ 동승자 웹(이용준)
+> 차량 앱(구성원 A) ↔ 허브 서버(구성원 B) ↔ 동승자 웹(구성원 B)
 > 저장소로 옮길 위치: `contract/protocol.md`
 > **이 문서가 두 사람의 유일한 접점입니다. 변경은 반드시 양쪽 합의 후 PR.**
 
-## 구현 상태 (2026-10-31)
+## 구현 상태 (2026-11-13)
 
 계약에 적혀 있다고 동작하는 것은 아닙니다. 지금 신뢰할 수 있는 범위입니다.
 
@@ -215,9 +215,9 @@ if (m.type === "turn.notify" && m.seatId === mySeat) showMyTurn();
 
 ## 목(mock) 구현 — 상대를 기다리지 않기 위한 장치
 
-- **이용준 → `MockCarClient`**: `role=car` 로 접속해 3초마다 `state.sync` 를 쏘고,
+- **구성원 B → `MockCarClient`**: `role=car` 로 접속해 3초마다 `state.sync` 를 쏘고,
   `queue.add` 를 받으면 큐에 넣은 새 상태를 돌려보낸다. 웹앱 단독 개발·테스트용.
-- **이정한 → `FakeVehicleSignalSource`**: 좌석·도어·기어·속도를 코드나 디버그 버튼으로 주입.
+- **구성원 A → `FakeVehicleSignalSource`**: 좌석·도어·기어·속도를 코드나 디버그 버튼으로 주입.
   에뮬레이터 검증 전에도 `SessionEngine` 개발 가능.
 
 ## 버전

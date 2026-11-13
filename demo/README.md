@@ -1,48 +1,88 @@
 # demo
 
-## mock-car.mjs — 차량 앱 목(mock)
+에뮬레이터와 동승자 폰을 **손으로 누르지 않고** 움직이는 스크립트들입니다.
+의존성 없음 — Node 22+ 내장 WebSocket·fetch 만 씁니다.
 
-동승자 웹앱을 차량 앱 없이 개발·테스트하기 위한 스크립트입니다.
-`contract/protocol.md` 의 차량 측 역할(단일 진실 공급원, 요청 검증·거절)을 그대로 수행합니다.
-의존성 없음 — Node 22+ 내장 WebSocket을 씁니다.
+| 파일 | 역할 |
+|---|---|
+| `scenario.mjs` | 시연 시나리오 자동 실행 (영상 녹화용) |
+| `shots.mjs` | 화면 시안 13장 캡처 |
+| `console.mjs` | Pleos Virtual Console 신호 주입 (좌석·기어·와이퍼·전조등·조향·충전) |
+| `phones.mjs` | 동승자 폰 흉내 (좌석 claim · 검색 · 곡 추가 · 투표) |
+| `mock-car.mjs` | 에뮬레이터 없이 차량 앱 흉내 |
+
+## 준비
+
+```bash
+# 에뮬레이터 + 차량 앱이 떠 있는 상태에서
+adb forward tcp:8088 tcp:8088          # Virtual Console
+cd hub-server && ./gradlew run         # 허브 + 동승자 웹 (8080)
+```
+
+## 시연 시나리오
+
+```bash
+node demo/scenario.mjs            # 전체 (약 4분)
+node demo/scenario.mjs --fast     # 대기 시간 단축 (리허설)
+node demo/scenario.mjs --step     # 장면마다 Enter (라이브 시연·PT)
+node demo/scenario.mjs --from 5   # 5번 장면부터
+node demo/scenario.mjs --reset    # 신호만 초기화
+```
+
+장면 순서: 탑승 → 폰 연결 → 좌석 턴 → 주행 → 비 → 굽잇길 → 터널 → 추천 →
+도착 → 충전 라운지 → 하차.
+
+**2열 좌는 비워 둡니다.** 브라우저로 `http://localhost:8080` 을 열고 그 자리를
+직접 잡으면, 사람이 쓰는 폰 화면이 영상에 같이 들어갑니다.
+
+## 화면 시안
+
+```bash
+node demo/shots.mjs                 # docs/screens/ 에 13장
+node demo/shots.mjs --no-phone      # 차량 화면만 (Chrome 없이)
+```
+
+폰 화면은 헤드리스 Chrome 을 CDP 로 직접 몰아 390×844 @2x 로 찍습니다.
+차량 화면은 `adb exec-out screencap` 후 앱 영역만 잘라냅니다(Pillow 가 있으면).
+
+## 신호 주입만
+
+```bash
+node demo/console.mjs           # 지금 신호 상태 덤프
+node demo/console.mjs --probe   # 주입 가능한 항목 확인 (넣고 되돌립니다)
+node demo/console.mjs --hold    # Virtual Console 화면을 손으로 조작할 때 세션 유지
+```
+
+Virtual Console 은 **브라우저가 보고 있는 동안에만** 신호를 받습니다
+(`POST /browser/session` 을 1초마다). `console.mjs` 가 그 하트비트를 대신하고,
+DDS 전송이 실제로 열릴 때까지(`availability.available`) 기다린 뒤 돌려줍니다.
+이걸 안 기다리면 첫 신호가 조용히 묻혀서 시연 첫 장면만 틀리게 시작합니다.
+
+## 차량 앱 없이
 
 ```bash
 node demo/mock-car.mjs
-node demo/mock-car.mjs --session a3f9 --host localhost:8080
+node demo/mock-car.mjs --charging            # 충전 라운지 모드로 시작
+node demo/mock-car.mjs --driving --eta 240   # 주행 + 랜딩 구간으로 시작
 ```
 
-실행 중 키 입력으로 차량 신호를 주입합니다 (Pleos Virtual Console 대역).
+실행 중 키 입력으로 신호를 주입합니다.
 
 | 키 | 동작 |
 |---|---|
-| `d` | 주행/정차 전환 — 폰의 권한 UI가 바뀌고, 주행이 끝나면 드라이브 앨범이 전송됩니다 |
-| `c` | 충전 토글 — 정차 중이면 충전 라운지 모드 (차례 없이 모두 추가 가능) |
-| `e` | ETA 를 4분으로 — 랜딩 구간 진입 확인 |
-| `1`~`5` | 좌석 착석 토글 (R1L, R1R, R2L, R2C, R2R) — 하차 시 큐·턴 정리 확인 |
+| `d` | 주행/정차 전환 |
+| `c` | 충전 토글 |
+| `e` | ETA 4분 (랜딩 구간) |
+| `1`~`5` | 좌석 착석 토글 (R1L, R1R, R2L, R2C, R2R) |
 | `n` | 다음 곡 |
 | `q` | 종료 |
 
-시작 상태를 플래그로 지정할 수도 있습니다.
+## 에뮬레이터가 이상할 때
 
-```bash
-node demo/mock-car.mjs --charging            # 충전 라운지 모드로 시작
-node demo/mock-car.mjs --driving --eta 240   # 주행 + 랜딩 구간으로 시작
-node demo/mock-car.mjs --session lounge      # 다른 세션방으로
-```
-
-## 전체 데모
-
-터미널 3개:
-
-```bash
-# 1
-cd hub-server && ./gradlew run
-# 2
-node demo/mock-car.mjs
-# 3 — 브라우저에서 http://localhost:8080 열기
-```
-
-## 앞으로 추가할 것
-
-- Pleos Connect Emulator Virtual Console 자동 조작 스크립트
-- 시나리오별 녹화 스크립트
+- **화면이 까맣게 찍힌다** — 렌더러가 멈춘 것입니다. 에뮬레이터를 다시 띄우세요.
+  `shots.mjs` 는 한 번 깨워서 다시 찍고, 그래도 까맣면 알려 줍니다.
+- **신호를 넣었는데 앱이 모른다** — `node demo/console.mjs` 로 값이 들어갔는지 먼저
+  확인하세요. 값은 맞는데 앱이 모르면 `availability.available` 이 false 인 상태에서
+  넣은 것입니다.
+- **2열 가운데가 늘 빈 좌석** — Virtual Console 에 그 좌석 항목이 없습니다.
+  에뮬레이터의 한계이고 실차에서는 제공됩니다.

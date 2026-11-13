@@ -47,3 +47,6 @@ Thumbs.db
 
 # --- 제출 문서는 이 저장소에 두지 않는다 (개인정보 포함) ---
 *.docx
+
+# --- release 서명 (절대 커밋 금지) ---
+keystore.properties
