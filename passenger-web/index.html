@@ -406,16 +406,24 @@ function status() {
 function connect() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const host = location.host || "localhost:8080";
-  ws = new WebSocket(`${proto}//${host}/session/${sessionId}?role=phone&deviceId=${deviceId}`);
+  const sock = new WebSocket(`${proto}//${host}/session/${sessionId}?role=phone&deviceId=${deviceId}`);
+  ws = sock;
 
-  ws.onopen = () => { link = null; status(); };
+  sock.onopen = () => { link = null; status(); };
 
-  ws.onclose = () => {
+  sock.onclose = () => {
+    // 이미 다른 소켓으로 갈아탄 뒤 들어온 close 는 무시합니다.
+    //
+    // 같은 deviceId 로 새로 접속하면 허브가 **먼저 붙어 있던** 연결을 끊습니다
+    // (한 기기는 한 자리). 그 close 를 보고 또 재접속하면, 새 접속이 다시
+    // 직전 연결을 끊는 핑퐁이 되어 2초마다 끊겼다 붙습니다. 탭을 두 개 열거나
+    // 새로고침만 해도 걸립니다.
+    if (ws !== sock) return;
     link = "재연결 중"; carOnline = false; status();
     setTimeout(connect, 2000);
   };
 
-  ws.onmessage = (e) => {
+  sock.onmessage = (e) => {
     let m; try { m = JSON.parse(e.data); } catch { return; }
 
     if (m.type === "state.sync") { carOnline = true; link = null; state = m; render(); }

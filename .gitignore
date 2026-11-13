@@ -50,3 +50,7 @@ Thumbs.db
 
 # --- release 서명 (절대 커밋 금지) ---
 keystore.properties
+
+# --- 시연 녹화 원본·완성본 (저장소에 넣지 않는다) ---
+recording/
+영상/
