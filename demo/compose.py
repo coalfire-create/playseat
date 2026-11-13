@@ -59,61 +59,79 @@ def probe(path):
 # 장면 표시 시각에 딱 맞춰 자르면 자막은 '비' 인데 화면은 아직 이전 분위기입니다.
 # 굽잇길은 조향 변동이 쌓여야 판정되므로 여유가 더 깁니다.
 SEGMENTS = [
-    ("좌석이 곧 입장권", 0.5, 7.9,
-     "좌석이 곧 입장권",
+    ("좌석이 곧 입장권", 0.6, 7.6,
+     "앉으면 끝. 좌석이 입장권입니다",
      "착석 신호로 탑승자를 자동 인식합니다. 초대도, 세션 개설도 없습니다"),
-    ("최초 1회 QR", 0.5, 5.4,
-     "최초 1회만 QR",
+    ("최초 1회 QR", 0.5, 5.2,
+     "폰은 처음 한 번만 QR",
      "다음부터는 타기만 하면 자동으로 연결됩니다"),
-    ("아무도 안 넣으면 차가 먼저 권한다", 1.0, 6.0,
-     "아직 아무도 곡을 넣지 않았습니다",
-     "차 안이 조용한 채로 흘러가는 시간"),
-    ("추천이 떴습니다", 0.5, 9.0,
-     "그러면 차가 먼저 권합니다",
-     "지금 분위기에 맞는 다섯 곡과 20초",
-     "재생·큐가 12초 비면 → 허브에 분위기로 질의 → 20초 뒤 자동 담기"),
-    ("그대로 담겼습니다", 0.5, 4.5,
-     "멈추지 않으면 그대로 담깁니다",
-     "폰에서 '괜찮아요' 를 누르면 담지 않습니다"),
-    ("차례를 기다리지 않습니다", 0.5, 6.0,
-     "듣고 싶은 걸 그냥 넣습니다",
-     "차례도, 좌석별 상한도 없습니다"),
-    ("한 사람이 연달아 넣어도 막지 않습니다", 1.0, 5.0,
-     "한 사람이 연달아 넣어도 막지 않습니다",
-     "규칙보다 눈치가 먼저 작동합니다. 그래도 불만이면 스킵 투표가 있습니다"),
-    ("주행하면 조작 권한이 동승자 폰으로", 1.5, 6.5,
-     "주행하면 조작 권한이 이사합니다",
-     "운전자 화면은 '지금 곡 + 버튼 2개'. 검색·목록·키보드가 잠깁니다"),
-    ("날씨 API가 아니라 와이퍼로 읽는다", 2.0, 6.8,
-     "비 — 날씨 API가 아니라 와이퍼로",
-     "터널에서도 지하주차장에서도 맞습니다. 화면·폰·실내 조명이 같이 바뀝니다",
-     "Virtual Console 주입: 와이퍼 Low  →  판정: 비 오는 날  →  앰비언트 조명 #4C6E8F"),
-    ("전조등이 켜지면 밤처럼", 2.0, 6.0,
-     "터널 — 전조등이 켜지면 밤처럼",
-     "왜 그렇게 판정했는지 근거를 같이 보여 줍니다",
+    ("추천이 떴습니다", 0.4, 5.6,
+     "아무도 안 넣으면 차가 먼저 권합니다",
+     "지금 분위기에 맞는 다섯 곡. 20초 안에 아무도 안 누르면 그대로 담깁니다"),
+    ("서아 → 괜찮아요", 0.2, 6.6,
+     "그런데 뒷자리 7살은 생각이 다릅니다",
+     "'괜찮아요' 를 누르고 아기상어를 넣습니다. 차례를 기다리지 않습니다"),
+    ("한 사람이 연달아 넣어도 막지 않습니다", 0.4, 5.6,
+     "그리고 멈추지 않습니다",
+     "뽀로로, 그리고 또 아기상어. 한 사람이 연달아 넣어도 규칙으로 막지 않습니다"),
+    ("엄마 → ", 0.2, 10.4,
+     "조수석도, 뒷자리도, 각자의 폰에서",
+     "운전자 폰을 건네받을 일이 없습니다. 검색하고 누르면 큐에 쌓입니다"),
+    ("지호 → 건너뛰기 1/2", -0.5, 7.4,
+     "거슬리면 투표. 혼자서는 못 넘깁니다",
+     "두 표가 모이면 다음 곡으로 넘어갑니다",
+     "2열 좌 1/2  →  조수석 2/2  →  다음 곡"),
+    ("주행하면 조작 권한이 동승자 폰으로", 1.5, 6.4,
+     "출발. 운전자 화면은 잠기고, 선곡권은 뒷자리로",
+     "운전자에게 남는 건 '다음 곡' 과 '말하기' 둘뿐. 검색·목록·키보드가 사라집니다"),
+    ("날씨 API가 아니라 와이퍼로 읽는다", 2.0, 6.4,
+     "비가 오면 차가 압니다 — 와이퍼로",
+     "날씨 API 가 아니라 차의 신호로. 화면·폰·실내 조명이 같이 바뀝니다",
+     "주입: 와이퍼 Low  →  판정: 비 오는 날  →  앰비언트 조명 #4C6E8F"),
+    ("전조등이 켜지면 밤처럼", 2.0, 5.6,
+     "전조등이 켜지면, 밤처럼",
+     "왜 그렇게 판정했는지 근거를 함께 보여 줍니다",
      "주입: 전조등 LowBeam  →  판정: 밤 드라이브  →  앰비언트 조명 #3B4B7A"),
-    ("지도 API 없이 조향 변동으로 지형을", 4.5, 6.5,
-     "굽잇길 — 지도 API 없이 조향으로",
-     "최근 12초 조향 변동폭. 산길과 고속도로는 다릅니다",
+    ("지도 API 없이 조향 변동으로 지형을", 4.5, 6.0,
+     "핸들이 바쁘면, 굽잇길",
+     "최근 12초 조향 변동폭으로 지형을 읽습니다. 지도 API 가 없어도 됩니다",
      "주입: 조향 ±75° 반복  →  변동폭 150° ≥ 55°  →  판정: 굽잇길"),
-    ("정차하면 운전자 화면이 다시 열린다", 1.5, 5.5,
-     "정차하면 운전자 화면이 다시 열립니다",
-     "전체 큐·검색·좌석 현황이 돌아옵니다"),
-    ("충전 중에는 라운지 모드", 2.5, 9.0,
-     "충전 — 정차해 있고 시간이 있는 상태",
-     "차 안에 머무는 20분이 하나의 모드가 됩니다"),
-    ("도착하면 드라이브 앨범이 남는다", 1.0, 5.0,
-     "도착하면 남는 것",
-     "함께 들은 곡이 드라이브 앨범으로 각자 폰에 전달됩니다"),
+    ("정차하면 운전자 화면이 다시 열린다", 1.5, 5.0,
+     "정차하면 운전자 화면이 돌아옵니다",
+     "전체 큐·검색·좌석 현황이 다시 열립니다"),
+    ("충전 중에는 라운지 모드", 2.5, 8.0,
+     "충전 20분은 라운지가 됩니다",
+     "정차해 있고 시간이 있는 상태. 다음 구간의 플레이리스트를 함께 만듭니다"),
+    ("도착하면 드라이브 앨범이 남는다", 1.0, 5.4,
+     "내리면 남는 것, 드라이브 앨범",
+     "함께 들은 곡이 각자의 폰으로 전달됩니다"),
 ]
 
-# 숏폼 (문구, 여유, 길이, 큰 글자, 작은 글자)
+# 문제 제기 카드 (본편 앞). (줄들, 작은 글, 길이, 그림)
+# 기능을 보여 주기 전에 '왜' 를 먼저 보여 줍니다. 문제가 없으면 해결도 없습니다.
+PROBLEM = [
+    (["가족 넷, 주말 드라이브 세 시간."],
+     ["운전석 아빠 · 조수석 엄마 · 뒷자리 지호 11살 · 서아 7살"], 3.0, None),
+    (["차와 연결된 폰은 하나뿐입니다.", "운전석."],
+     ["나머지 셋은 듣기만 합니다"], 3.8, "one"),
+    (["그래서 세 시간 내내,", "운전석의 플레이리스트."],
+     ["뒷자리: \"아빠, 노래 바꿔 줘\"  ×9", "조수석: \"폰 줘 봐, 내가 할게\""], 3.6, None),
+    (["바꿔 줄 수 있는 단 한 사람은,", "운전 중입니다."],
+     ["주행 중 화면 조작은 가장 위험한 순간입니다"], 3.8, None),
+]
+
+# 숏폼 (문구, 여유, 길이, 큰 글자, 작은 글자) — 세로. 첫 2초 안에 문제가 보여야 합니다.
+SHORT_HOOK = [
+    (["차에서 노래,", "누가 고르지?"], ["항상 운전석. 세 시간 내내"], 2.6, "one"),
+    (["바꿀 수 있는 한 사람은", "운전 중."], ["뒷자리: \"아빠, 노래 바꿔 줘\"  ×9"], 2.8, None),
+]
 SHORT = [
-    ("좌석이 곧 입장권", 2.5, 5.5, "차에서 노래\n누가 틀어?", "보통은 운전석 한 명"),
-    ("최초 1회 QR", 1.5, 4.0, "타면 전원\n자동으로 들어옵니다", "좌석 착석 신호로 인식"),
-    ("추천이 떴습니다", 0.5, 6.5, "아무도 안 넣으면\n차가 먼저 권한다", "분위기에 맞는 5곡 · 20초"),
-    ("주행하면 조작 권한이 동승자 폰으로", 1.5, 6.0, "달리면\n권한이 뒷자리로", "운전자 화면은 잠깁니다"),
-    ("날씨 API가 아니라 와이퍼로 읽는다", 2.5, 6.0, "비는 와이퍼가 안다", "날씨 API 없이 차의 신호로"),
+    ("좌석이 곧 입장권", 2.0, 4.6, "앉으면\n자동 입장", "좌석 착석 신호로 탑승자 인식"),
+    ("서아 → 괜찮아요", 1.4, 5.0, "뒷자리 7살,\n아기상어 투하", "각자 폰에서 그냥 넣습니다"),
+    ("엄마 → ", 3.2, 6.2, "조수석도 뒷자리도\n각자의 폰으로", "운전자 폰을 건넬 일이 없습니다"),
+    ("지호 → 건너뛰기 1/2", -0.3, 5.4, "거슬리면\n투표로 넘깁니다", "혼자서는 못 넘깁니다 · 2표"),
+    ("주행하면 조작 권한이 동승자 폰으로", 1.5, 4.6, "달리면\n운전석 화면은 잠김", "선곡권은 뒷자리로"),
+    ("날씨 API가 아니라 와이퍼로 읽는다", 2.5, 4.6, "비는\n와이퍼가 안다", "날씨 API 없이 차의 신호로"),
 ]
 
 
@@ -207,6 +225,140 @@ def card(w, h, lines, sub=None, foot=None, big=86):
     if foot:
         d.text(((w - d.textlength(foot, font=ff)) / 2, h - 118), foot, font=ff, fill=ACCENT)
     return im
+
+
+# ── 문제 제기 그림과 카드 ────────────────────────────────────────────────
+def cabin_art(size, connected, scale=1.0):
+    """차 안을 위에서 본 그림. 좌석 넷과 각자의 폰, 그리고 차와 이어진 선.
+
+    연결된 폰만 강조색이고 나머지는 흐립니다. 같은 그림을 '하나만 연결' 과
+    '전부 연결' 두 번 쓰면 설명 없이도 전후가 읽힙니다."""
+    w, h = size
+    im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    k = scale
+    # 차체
+    body = [int(40 * k), int(30 * k), w - int(40 * k), h - int(30 * k)]
+    d.rounded_rectangle(body, radius=int(120 * k), outline=EDGE + (255,), width=max(2, int(3 * k)))
+    # 대시보드(스피커 노드)
+    cx, top = w // 2, body[1] + int(70 * k)
+    d.rounded_rectangle([cx - int(170 * k), top - int(14 * k), cx + int(170 * k), top + int(14 * k)],
+                        radius=int(14 * k), fill=EDGE + (255,))
+    node_r = int(26 * k)
+    seats = {
+        "운전석": (cx - int(150 * k), body[1] + int(170 * k)),
+        "조수석": (cx + int(150 * k), body[1] + int(170 * k)),
+        "2열 좌": (cx - int(150 * k), body[1] + int(400 * k)),
+        "2열 우": (cx + int(150 * k), body[1] + int(400 * k)),
+    }
+    sw, sh = int(190 * k), int(170 * k)
+    fl, fs = font(int(26 * k), 2), font(int(20 * k), 0)
+    # 선을 먼저 긋습니다 (좌석 아래로 들어가게)
+    for name, (x, y) in seats.items():
+        on = name in connected
+        px, py = x + sw // 2 - int(34 * k), y + sh // 2 - int(18 * k)
+        if on:
+            d.line([(px, py), (px, top + int(40 * k)), (cx, top + int(40 * k)), (cx, top)],
+                   fill=ACCENT + (255,), width=max(2, int(4 * k)), joint="curve")
+    for name, (x, y) in seats.items():
+        on = name in connected
+        box = [x - sw // 2, y - sh // 2, x + sw // 2, y + sh // 2]
+        d.rounded_rectangle(box, radius=int(26 * k), fill=(30, 32, 38, 255),
+                            outline=(EDGE if not on else ACCENT) + (255,), width=max(2, int(3 * k)))
+        d.rounded_rectangle([x - int(60 * k), box[1] - int(10 * k), x + int(60 * k), box[1] + int(4 * k)],
+                            radius=int(6 * k), fill=EDGE + (255,))
+        d.text((x - d.textlength(name, font=fl) / 2, y - int(58 * k)), name, font=fl,
+               fill=(INK if on else DIM) + (255,))
+        # 폰
+        px, py = x + sw // 2 - int(34 * k), y + sh // 2 - int(18 * k)
+        pw, ph = int(38 * k), int(66 * k)
+        pbox = [px - pw // 2, py - ph // 2, px + pw // 2, py + ph // 2]
+        if on:
+            d.rounded_rectangle(pbox, radius=int(8 * k), fill=ACCENT + (255,))
+        else:
+            d.rounded_rectangle(pbox, radius=int(8 * k), outline=DIM + (255,), width=max(2, int(3 * k)))
+            d.line([(pbox[0] + int(9 * k), pbox[1] + int(22 * k)), (pbox[2] - int(9 * k), pbox[3] - int(22 * k))],
+                   fill=DIM + (255,), width=max(2, int(3 * k)))
+            d.line([(pbox[2] - int(9 * k), pbox[1] + int(22 * k)), (pbox[0] + int(9 * k), pbox[3] - int(22 * k))],
+                   fill=DIM + (255,), width=max(2, int(3 * k)))
+        lab = "연결됨" if on else "듣기만"
+        d.text((x - d.textlength(lab, font=fs) / 2, y + int(8 * k)), lab, font=fs,
+               fill=(ACCENT if on else DIM) + (255,))
+    d.ellipse([cx - node_r, top - node_r, cx + node_r, top + node_r], fill=ACCENT + (255,))
+    fn = font(int(28 * k), 2)
+    d.text((cx - d.textlength("♪", font=fn) / 2, top - int(19 * k)), "♪", font=fn, fill=(12, 14, 18, 255))
+    return im
+
+
+def motion_card(work, name, w, h, lines, sub, dur, art=None, big=None, foot=None,
+                brand=False, vertical=False):
+    """카드 한 장. 글자가 아래에서 살짝 떠오르며 들어오고 나갈 때 흐려집니다.
+
+    카드가 툭 나타나면 슬라이드 쇼가 됩니다. 움직임은 작게, 한 방향으로만."""
+    bg = backdrop(w, h, [])
+    fg = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(fg)
+    big = big or (84 if not vertical else 80)
+    fb, fm, ff = font(big, 2), font(32 if not vertical else 34, 0), font(25, 0)
+    art_im = None
+    if art is not None:
+        conn = {"운전석"} if art == "one" else {"운전석", "조수석", "2열 좌", "2열 우"}
+        if vertical:
+            art_im = cabin_art((700, 700), conn, scale=1.0)
+        else:
+            art_im = cabin_art((760, 720), conn, scale=1.05)
+
+    lh = int(big * 1.22)
+    block = len(lines) * lh + (16 + len(sub) * 50 if sub else 0)
+    if vertical:
+        x = 84
+        y = 300
+        for ln in lines:
+            d.text((x, y), ln, font=fb, fill=INK + (255,)); y += lh
+        if sub:
+            y += 16
+            for ln in sub:
+                d.text((x + 2, y), ln, font=fm, fill=DIM + (255,)); y += 50
+        if art_im is not None:
+            fg.alpha_composite(art_im, ((w - art_im.width) // 2, max(y + 60, 820)))
+    else:
+        if art_im is not None:
+            x = 150
+            ax = w - art_im.width - 150
+            fg.alpha_composite(art_im, (ax, (h - art_im.height) // 2))
+            y = (h - block) // 2
+            for ln in lines:
+                d.text((x, y), ln, font=fb, fill=INK + (255,)); y += lh
+            if sub:
+                y += 16
+                for ln in sub:
+                    d.text((x + 2, y), ln, font=fm, fill=DIM + (255,)); y += 50
+        else:
+            y = (h - block) // 2
+            for ln in lines:
+                d.text(((w - d.textlength(ln, font=fb)) / 2, y), ln, font=fb, fill=INK + (255,)); y += lh
+            if sub:
+                y += 16
+                for ln in sub:
+                    d.text(((w - d.textlength(ln, font=fm)) / 2, y), ln, font=fm, fill=DIM + (255,)); y += 50
+    if brand:
+        d.rectangle([(w - 54) // 2 if art_im is None and not vertical else (84 if vertical else 150),
+                     (h - block) // 2 - 34 if not vertical else 266,
+                     ((w - 54) // 2 if art_im is None and not vertical else (84 if vertical else 150)) + 54,
+                     (h - block) // 2 - 30 if not vertical else 270], fill=ACCENT + (255,))
+    if foot:
+        d.text(((w - d.textlength(foot, font=ff)) / 2, h - 118), foot, font=ff, fill=ACCENT + (255,))
+
+    bgp, fgp = work / f"{name}_bg.png", work / f"{name}_fg.png"
+    bg.save(bgp); fg.save(fgp)
+    out = work / f"{name}.mp4"
+    run("ffmpeg", "-v", "error", "-y", "-loop", "1", "-i", str(bgp), "-loop", "1", "-i", str(fgp),
+        "-filter_complex",
+        f"[1:v]format=rgba,fade=t=in:st=0:d=0.55:alpha=1,"
+        f"fade=t=out:st={dur - 0.55:.2f}:d=0.45:alpha=1[fg];"
+        f"[0:v][fg]overlay=0:'26*pow(1-min(1,t/0.8),2)':shortest=1,fps=30,format=yuv420p[v]",
+        "-map", "[v]", "-t", f"{dur}", "-c:v", "libx264", "-preset", "medium", "-crf", "18", str(out))
+    return out
 
 
 # ── 본편 ────────────────────────────────────────────────────────────────
@@ -307,29 +459,28 @@ def build(indir: Path, outdir: Path):
         parts.append((seg, dur))
         print(f"     {i + 1:2}/{len(SEGMENTS)}  {title}")
 
-    # 4. 제목·마무리
-    print("4/6  제목과 마무리")
-    head_png, tail_png = work / "head.png", work / "tail.png"
-    card(W, H, ["플레이시트"],
-         ["차 안에서 음악을 조작할 수 있는 사람은,",
-          "조작해서는 안 되는 사람입니다",
-          "",
-          "Pleos Connect 차량용 앱 · 팀 Semicolon"],
-         "에뮬레이터 실제 구동 화면 · 편집 외에 가공하지 않았습니다", big=96).save(head_png)
-    card(W, H, ["폰은 알 수 없는 것들"],
-         ["누가 어느 좌석에 탔는가 · 지금 주행 중인가",
-          "비가 오는가 · 굽잇길인가 · 충전 중인가",
-          "이 신호들이 있어야 성립하는 앱입니다"],
-         "github.com/coalfire-create/playseat", big=78).save(tail_png)
-    head, tail = work / "head.mp4", work / "tail.mp4"
-    for png, mp4, d in ((head_png, head, 5.0), (tail_png, tail, 7.0)):
-        run("ffmpeg", "-v", "error", "-y", "-loop", "1", "-t", f"{d}", "-i", str(png),
-            "-vf", f"fps=30,fade=t=in:st=0:d=0.8,fade=t=out:st={d - 1.0:.2f}:d=0.9,format=yuv420p",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "18", str(mp4))
+    # 4. 문제 제기 → 제목 → (본편) → 마무리
+    print("4/6  문제 제기와 제목")
+    fronts = []
+    for i, (lines, sub, dur, art) in enumerate(PROBLEM):
+        fronts.append((motion_card(work, f"p{i}", W, H, lines, sub, dur, art=art), dur))
+    title_dur = 4.4
+    fronts.append((motion_card(
+        work, "title", W, H, ["플레이시트"],
+        ["모든 좌석에 선곡권을. 각자의 폰으로.", "", "Pleos Connect 차량용 앱 · 팀 Semicolon"],
+        title_dur, art="all", big=112, brand=True,
+        foot="에뮬레이터 실제 구동 화면 · 편집 외에 가공하지 않았습니다"), title_dur))
+    tail_dur = 7.0
+    tail = motion_card(
+        work, "tail", W, H,
+        ["운전석 한 명의 플레이리스트에서,", "네 명의 플레이리스트로."],
+        ["좌석 · 주행 · 와이퍼 · 전조등 · 조향 · 충전",
+         "폰은 알 수 없고 차만 아는 신호로 움직이는 앱입니다"],
+        tail_dur, big=76, foot="github.com/coalfire-create/playseat")
 
     # 5. 겹쳐 넘기며 잇기
     print("5/6  겹쳐 넘기며 잇기")
-    clips = [(head, 5.0)] + parts + [(tail, 7.0)]
+    clips = fronts + parts + [(tail, tail_dur)]
     final = outdir / "시연영상_플레이시트.mp4"
     xfade_concat(clips, final)
 
@@ -379,6 +530,11 @@ def build_short(indir, work, phone_mp4, at, out):
     chrome(SW, SH, [(*car_box, 14, 12), (*phone_box, 12, 42)]).save(chm)
 
     clips = []
+    for i, (lines, sub, dur, art) in enumerate(SHORT_HOOK):
+        clips.append((motion_card(work, f"sh{i}", SW, SH, lines, sub, dur, art=art, vertical=True), dur))
+    clips.append((motion_card(work, "shlogo", SW, SH, ["플레이시트"],
+                              ["모든 좌석에 선곡권을.", "각자의 폰으로."], 2.6,
+                              art="all", big=96, brand=True, vertical=True), 2.6))
     for i, (needle, lead, dur, big, small) in enumerate(SHORT):
         cap = work / f"scap{i}.png"
         caption(SW, SH, big, small, 62, 104, big=80, small=35).save(cap)

@@ -547,7 +547,7 @@ private fun QueueList(state: SessionState, modifier: Modifier) {
         HLine()
         if (state.queue.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("차례인 좌석이 곡을 넣으면 여기에 쌓입니다", fontSize = 21.sp, color = p.sub)
+                Text("앉은 사람이 폰에서 넣으면 여기에 쌓입니다", fontSize = 21.sp, color = p.sub)
             }
         } else {
             Column(Modifier.verticalScroll(rememberScrollState())) {

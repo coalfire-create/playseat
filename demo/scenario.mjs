@@ -70,6 +70,67 @@ async function scene(title, caption, body) {
   await body();
 }
 
+
+/* ---------- 영상 속 폰 ----------
+   record.mjs 가 띄운 헤드리스 Chrome(포트 9223)의 폰 화면을 CDP 로 몰아
+   사람이 하듯 글자를 치고, 검색하고, '추가' 와 '건너뛰기' 를 누릅니다.
+   흉내 클라이언트(phones.mjs)만 쓰면 폰 화면은 늘 구경만 하는 폰이 됩니다 —
+   '각자 폰으로 넣는다' 가 이 앱의 명제인데 그 장면이 없으면 안 됩니다. */
+class BrowserPhone {
+  #ws; #id = 0; #w = new Map();
+  async open() {
+    let tab;
+    try {
+      const list = await (await fetch("http://127.0.0.1:9223/json/list")).json();
+      tab = list.find((t) => (t.url ?? "").includes("localhost:8080"));
+    } catch { /* 녹화 밖에서 돌릴 때는 없습니다 */ }
+    if (!tab) return null;
+    this.#ws = new WebSocket(tab.webSocketDebuggerUrl);
+    await new Promise((res, rej) => { this.#ws.onopen = res; this.#ws.onerror = rej; });
+    this.#ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.id && this.#w.has(m.id)) { this.#w.get(m.id)(m.result); this.#w.delete(m.id); }
+    };
+    return this;
+  }
+  cmd(method, params = {}) {
+    return new Promise((res) => {
+      const id = ++this.#id; this.#w.set(id, res);
+      this.#ws.send(JSON.stringify({ id, method, params }));
+    });
+  }
+  async eval(expression) {
+    const r = await this.cmd("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+    return r?.result?.value;
+  }
+  /** 한 글자씩. 한 번에 들어가면 붙여넣기처럼 보입니다. */
+  async type(q) {
+    for (let i = 1; i <= q.length; i++) {
+      await this.eval(`(() => { const el = document.getElementById("q"); el.focus();
+        el.value = ${JSON.stringify(q)}.slice(0, ${i});
+        el.dispatchEvent(new Event("input", { bubbles: true })); })()`);
+      await sleep(80 + Math.random() * 90);
+    }
+  }
+  /** 검색해서 첫 결과를 담습니다. 담긴 곡 제목을 돌려줍니다. */
+  async addFirst(q) {
+    await this.type(q);
+    await sleep(500);
+    await this.eval(`document.getElementById("bSearch").click()`);
+    for (let i = 0; i < 30; i++) {
+      await sleep(300);
+      if (await this.eval(`document.querySelectorAll("#results button").length`)) break;
+    }
+    await sleep(1200);
+    const title = await this.eval(
+      `(() => { const li = document.querySelector("#results li"); const b = li?.querySelector("button");
+        const t = li?.querySelector(".ti")?.textContent ?? ""; b?.click(); return t; })()`);
+    return title;
+  }
+  skip() { return this.eval(`document.getElementById("bSkip").click()`); }
+  close() { this.#ws?.close(); }
+}
+
 const adb = (...a) => { try { execFileSync("adb", a, { stdio: "ignore" }); } catch {} };
 
 if (!has("no-restart") && !has("reset")) {
@@ -149,37 +210,62 @@ await scene("아무도 안 넣을 때 — 차가 먼저 권한다", "아무도 �
   }
   mark("beat", "추천이 떴습니다 — 20초 카운트다운");
   console.log("   → 추천 5곡 + 20초 카운트다운. 폰에서 '괜찮아요' 를 누르면 담지 않습니다");
-  for (let i = 0; i < 30; i++) {
-    if (phones[0].state?.nowPlaying) break;
-    await sleep(1000);
-  }
-  mark("beat", "아무도 안 눌러서 그대로 담겼습니다");
-  console.log(`   → 담긴 곡: ${phones[0].state?.nowPlaying?.title ?? "(없음)"}`);
-  await wait(3);
+  await waitReal(7);
 });
 
-await scene("듣고 싶은 걸 그냥 넣는다", "차례를 기다리지 않습니다", async () => {
-  // 차례가 없으므로 누가 먼저 넣든 상관없습니다. 듣고 싶은 곡이 생긴 순간이
-  // 넣는 순간이고, 그게 플레이리스트입니다.
-  for (const [who, q] of [["엄마", "아이유"], ["서아", "아기상어"]]) {
-    const p = phones.find((x) => x.nickname === who);
-    const t = await p.add(q);
-    mark("beat", `${who} → ${t?.title ?? q}`);
-    console.log(`   ${who} → ${t ? `${t.title} — ${t.artist}` : q}`);
-    await wait(3);
-  }
+const seoa = () => phones.find((x) => x.nickname === "서아");
+const mom = () => phones.find((x) => x.nickname === "엄마");
+
+await scene("뒷자리 7살은 생각이 다릅니다", "뒷자리 7살은 생각이 다릅니다", async () => {
+  // 차가 권한 것을 거절하고 자기 곡을 넣습니다. 차례가 없으니 바로 재생됩니다.
+  seoa().dismissSuggestion();
+  mark("beat", "서아 → 괜찮아요");
+  console.log("   서아 → 괜찮아요 (추천 거절)");
+  await wait(2.5);
+  const t = await seoa().add("아기상어");
+  mark("beat", `서아 → ${t?.title ?? "아기상어"}`);
+  console.log(`   서아 → ${t ? `${t.title} — ${t.artist}` : "아기상어"} (바로 재생)`);
+  await wait(4);
 });
 
-await scene("한 사람이 연달아 넣어도 됩니다", "한 사람이 연달아 넣어도 막지 않습니다", async () => {
+await scene("그리고 멈추지 않습니다", "한 사람이 연달아 넣어도 막지 않습니다", async () => {
   // 독점을 규칙으로 막지 않습니다. 같이 탄 사람들은 서로 보고 있고,
   // 그래도 불만이면 스킵 투표가 있습니다.
-  const p = phones.find((x) => x.nickname === "서아");
   for (const q of ["뽀로로", "핑크퐁"]) {
-    const t = await p.add(q);
+    const t = await seoa().add(q);
     mark("beat", `서아 → ${t?.title ?? q}`);
     console.log(`   서아 → ${t ? `${t.title} — ${t.artist}` : q}`);
     await wait(2.5);
   }
+});
+
+const browser = await new BrowserPhone().open();
+if (!browser) console.log("   (영상 속 폰이 없습니다 — 2열 좌 장면은 흉내 클라이언트 없이 지나갑니다)");
+
+await scene("각자 폰에서, 차례 없이", "각자 폰에서 차례 없이 넣습니다", async () => {
+  const t = await mom().add("밤편지");
+  mark("beat", `엄마 → ${t?.title ?? "밤편지"}`);
+  console.log(`   엄마 → ${t ? `${t.title} — ${t.artist}` : "밤편지"}`);
+  await wait(3);
+  if (browser) {
+    mark("beat", "지호 → 검색어 입력");
+    const title = await browser.addFirst("NewJeans");
+    mark("beat", `지호 → ${title || "추가"}`);
+    console.log(`   지호(영상 속 폰) → ${title || "(추가)"}`);
+  }
+  await wait(4);
+});
+
+await scene("거슬리면 투표", "거슬리면 투표로 건너뜁니다", async () => {
+  // 혼자서는 못 넘깁니다. 과반(최소 2표)이 모여야 넘어갑니다.
+  if (browser) await browser.skip(); else phones[0].skip();
+  mark("beat", "지호 → 건너뛰기 1/2");
+  console.log("   지호 → 건너뛰기 (1/2)");
+  await wait(3);
+  mom().skip();
+  mark("beat", "엄마 → 건너뛰기 2/2 → 다음 곡");
+  console.log("   엄마 → 건너뛰기 (2/2) → 다음 곡");
+  await wait(4.5);
 });
 
 await scene("주행 시작 — 조작 권한이 폰으로 이사", "주행하면 조작 권한이 동승자 폰으로", async () => {
@@ -233,6 +319,7 @@ await scene("충전 라운지 — 정차해 있고 시간이 있다", "충전 �
 await scene("하차 — 좌석 회수와 드라이브 앨범", "도착하면 드라이브 앨범이 남는다", async () => {
   await car.charging(false);
   phones.forEach((p) => p.close());
+  browser?.close();
   await car.seats({ R1L: false, R1R: false, R2L: false, R2R: false });
   console.log("   → 좌석 슬롯 회수, 드라이브 앨범 전송");
   await wait(6);

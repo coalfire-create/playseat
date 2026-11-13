@@ -634,7 +634,7 @@ function render() {
     ? `${mins(state.queueTotalMs)}분 / 도착 ${mins(state.queueTargetMs)}분` : "";
   const ql = $("queue"); ql.replaceChildren();
   if (!q.length) {
-    ql.innerHTML = `<li style="border:0"><span class="empty">차례인 좌석이 곡을 넣으면 여기에 쌓입니다</span></li>`;
+    ql.innerHTML = `<li style="border:0"><span class="empty">앉은 사람이 폰에서 넣으면 여기에 쌓입니다</span></li>`;
   } else q.forEach((t, i) => ql.append(trackRow(t, { index:i + 1, by:true })));
 
   $("foot").textContent = `${label(mySeat)} · ${nickname || deviceId}`;
@@ -705,6 +705,7 @@ function renderSuggestions() {
 
 function renderResults(msg) {
   const ul = $("results"); ul.replaceChildren();
+  if (!results.length && !msg) { $("srcNote").textContent = ""; return; }   // 담은 뒤 비운 것
   if (!results.length) {
     ul.innerHTML = `<li style="border:0"><span class="empty">결과가 없습니다. 다른 검색어로 해보세요.</span></li>`;
     $("srcNote").textContent = "";
@@ -719,6 +720,9 @@ function renderResults(msg) {
         // 커버 주소를 같이 넘깁니다. 차량 화면이 다시 찾지 않도록 폰이 들고 가는 값입니다.
         send({ type:"queue.add", seatId:mySeat, title:t.title, artist:t.artist,
                durationMs:t.durationMs, externalId:t.externalId, artworkUrl:t.artworkUrl });
+        // 담았으면 검색은 끝난 것입니다. 결과를 치워 큐가 다시 보이게 합니다.
+        results = []; $("q").value = ""; $("q").blur();
+        renderResults(null); toast(`담았습니다 — ${t.title}`);
       };
       return b;
     } }));

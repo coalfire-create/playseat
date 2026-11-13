@@ -52,5 +52,5 @@ Thumbs.db
 keystore.properties
 
 # --- 시연 녹화 원본·완성본 (저장소에 넣지 않는다) ---
-recording/
-영상/
+recording*/
+영상*/
