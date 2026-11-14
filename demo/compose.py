@@ -79,8 +79,16 @@ def _w(name):
     return 0
 
 
+# 숏폼의 큰 글자. 시스템 고딕은 어디서나 본 글씨라 눈이 지나칩니다.
+# 없으면 시스템 고딕의 가장 굵은 것으로 대신합니다.
+DISPLAY = next((p for p in (HERE / "assets" / "fonts" / "BlackHanSans-Regular.ttf",
+                            Path.home() / "Library/Fonts/BlackHanSans-Regular.ttf") if p.exists()), None)
+
+
 @lru_cache(maxsize=None)
 def font(size, weight="Bold"):
+    if weight == "Display" and DISPLAY:
+        return ImageFont.truetype(str(DISPLAY), int(size))
     return ImageFont.truetype(FONT, int(size), index=_w(weight))
 
 
@@ -425,15 +433,19 @@ SFX = {
 }
 
 
-def add_audio(video, out, events, music_sec, music_lufs, crf=23):
+def add_audio(video, out, events, music_sec, music_lufs, crf=23, reel=False):
     total = probe(video)
-    music = HERE / "assets" / f"music_{int(music_sec)}s.wav"
-    if not music.exists():
-        run(sys.executable, str(HERE / "music.py"), "--sec", str(music_sec), "--out", str(music))
+    if reel:      # 숏폼은 영상 구간에 맞춘 전용 편곡을 씁니다
+        music = HERE / "assets" / "music_reel.wav"
+        run(sys.executable, str(HERE / "music.py"), "--reel", "--out", str(music))
+    else:
+        music = HERE / "assets" / f"music_{int(music_sec)}s.wav"
+        if not music.exists():
+            run(sys.executable, str(HERE / "music.py"), "--sec", str(music_sec), "--out", str(music))
     args = ["ffmpeg", "-v", "error", "-y", "-i", str(video), "-i", str(music)]
     flt = [f"[1:a]atrim=0:{total:.2f},aformat=sample_rates=44100:channel_layouts=stereo,"
-           f"loudnorm=I={music_lufs}:TP=-2:LRA=9,afade=t=in:d=0.3,"
-           f"afade=t=out:st={total - 1.8:.2f}:d=1.8[m]"]
+           f"loudnorm=I={music_lufs}:TP=-2:LRA=11,afade=t=in:d={0.05 if reel else 0.3},"
+           f"afade=t=out:st={total - (0.9 if reel else 1.8):.2f}:d={0.9 if reel else 1.8}[m]"]
     tags, k = ["[m]"], 2
     for (t, name, gain) in events:
         f = HERE / "assets" / "sfx" / SFX[name]
@@ -761,219 +773,263 @@ def build_demo(indir, work, phone_mp4, at, out):
 # ════════════════════════════════════════════════════════════════════════
 #  숏폼 (1080×1920)
 # ════════════════════════════════════════════════════════════════════════
-# 숏폼은 심사용 본편과 다른 물건입니다. 손안에서 엄지로 넘기다 멈춰야 하므로
-# 글자가 크고, 기기가 크게 움직이고, 컷이 음악 박자에 맞습니다.
+# 숏폼은 심사용 본편과 다른 물건입니다. 손안에서 엄지로 넘기다 멈춰야 하고,
+# 멈춘 사람이 끝까지 봐야 합니다. 그래서 기능을 나열하지 않고 **한 가족의
+# 이야기 하나**로 잇습니다 — 장면마다 앞 장면이 남긴 질문에 답합니다.
 #
-# (문구, 여유, 박자 수, 배치, 번호표, 첫 줄, 둘째 줄(강조색), 작은 글, 이모지, 바탕, 강조색)
+#   "아빠 노래 바꿔 줘" ×9  →  바꿔 줄 사람은 운전 중  →  그래서 선곡권을 나눴다
+#   →  타면 끝  →  각자 폰으로 넣는다  →  그랬더니 7살이 아기상어만  →  투표로 넘긴다
+#   →  그럼 운전자는? 화면이 잠긴다  →  비가 오면 차가 안다  →  아무도 안 고르면 차가 고른다
+#
+# 꾸밈은 덜어냈습니다. 바탕은 평평한 한 색, 글자는 굵은 한 벌, 강조는 형광펜 한 줄.
+# 장면마다 색이 바뀌고 스티커가 붙으면 템플릿으로 찍어 낸 영상처럼 보입니다.
+#
+# (문구, 여유, 박자 수, 배치, 첫 줄, 둘째 줄(형광펜), 작은 글)
 REEL = [
-    ("좌석이 곧 입장권", 2.0, 8, "car", "탑승", "앉으면", "자동 입장",
-     "초대도, 방 만들기도 없어요", "💺", (232, 243, 255), BLUE),
-    ("서아 → 괜찮아요", 1.4, 8, "car", "선곡", "뒷자리 7살의", "아기상어 투하",
-     "차례 없이, 각자 폰에서 바로", "🦈", (255, 244, 226), (245, 124, 0)),
-    ("엄마 → ", 3.2, 8, "phone", "각자의 폰", "폰 건네줄 일,", "이제 없어요",
-     "검색하고 누르면 큐에 쌓여요", "📱", (247, 238, 252), (150, 56, 200)),
-    ("지호 → 건너뛰기 1/2", -0.3, 8, "phone", "투표", "거슬리면", "투표로 넘겨요",
-     "혼자서는 못 넘겨요 · 두 표면 다음 곡", "🗳️", (232, 248, 240), (3, 160, 98)),
-    ("주행하면 조작 권한이 동승자 폰으로", -0.9, 8, "car", "출발", "달리면", "운전석은 잠겨요",
-     "버튼은 둘만. 선곡은 뒷자리로", "🚗", (255, 236, 238), RED),
-    ("날씨 API가 아니라 와이퍼로 읽는다", -1.6, 8, "car", "분위기", "비가 오면", "차가 먼저 알아요",
-     "날씨 API 없이, 와이퍼 신호로", "🌧️", (232, 239, 248), (52, 96, 168)),
+    ("좌석이 곧 입장권", 2.0, 8, "car", "일단, 타면 끝.", "자리가 입장권",
+     "초대도 방 만들기도 없이, 좌석이 사람을 알아봐요"),
+    ("지호 → 검색어 입력", -0.4, 8, "phone", "노래는 각자 폰으로", "그냥 넣으면 돼요",
+     "아빠 폰 건네받을 일, 이제 없어요"),
+    ("한 사람이 연달아 넣어도 막지 않습니다", 0.5, 8, "car", "그랬더니 7살이", "아기상어만 넣네요",
+     "한 번 더. 그리고 또 한 번 더."),
+    ("지호 → 건너뛰기 1/2", -0.3, 8, "phone", "괜찮아요,", "투표로 넘기면 돼요",
+     "두 표 모이면 다음 곡 · 혼자서는 못 넘겨요"),
+    ("주행하면 조작 권한이 동승자 폰으로", -0.9, 8, "car", "그럼 운전자는요?", "화면이 잠깁니다",
+     "버튼 둘만 남고, 선곡은 동승자 몫이에요"),
+    ("날씨 API가 아니라 와이퍼로 읽는다", -1.6, 4, "car", "그러다 비가 오면", "차가 먼저 알아요",
+     "와이퍼가 움직이면 '비 오는 날'"),
+    # 분위기를 읽는 이유. 운전 중에는 아무도 고르지 못하는 순간이 오고,
+    # 그때 차가 지금 분위기에 맞는 곡을 대신 권합니다.
+    ("추천이 떴습니다", 0.4, 8, "car", "아무도 안 고를 땐", "차가 대신 골라요",
+     "운전 중엔 못 고르니까, 분위기에 맞는 다섯 곡을"),
 ]
+DARK = (17, 20, 24)
+PAPER = (244, 245, 247)
+YELLOW = (255, 221, 51)
+CHAT = (254, 229, 0)
+
+
+@lru_cache(maxsize=None)
+def marker_im(w, h, color=YELLOW):
+    """형광펜 한 줄. 자로 그은 네모가 아니라 손으로 그은 것처럼 가장자리가 조금 흔들립니다."""
+    ss = 2
+    rng = np.random.default_rng(w * 31 + h)
+    im = Image.new("RGBA", ((w + 24) * ss, (h + 16) * ss), (0, 0, 0, 0))
+    n = 14
+    top = [((12 + w * i / n) * ss, (8 + rng.uniform(-3, 3)) * ss) for i in range(n + 1)]
+    bot = [((12 + w * i / n + rng.uniform(-2, 2)) * ss, (8 + h + rng.uniform(-3, 3)) * ss) for i in range(n, -1, -1)]
+    top[0] = (4 * ss, 12 * ss); bot[0] = ((w + 20) * ss, (h + 4) * ss)
+    ImageDraw.Draw(im).polygon(top + bot, fill=tuple(color) + (255,))
+    return im.resize((w + 24, h + 16), Image.LANCZOS)
+
+
+def headline(cv, s, x, y, size, t, delay, fill=INK, mark=None):
+    """굵은 한 줄. mark 가 있으면 글자 밑에 형광펜이 왼쪽에서 오른쪽으로 그어집니다."""
+    im = text_im(s, size, "Display", tuple(fill))
+    if mark is not None:
+        p = oc(ent(t, delay + .16, .34))
+        if p > 0:
+            mk = marker_im(im.width - PAD * 2 + 8, int(size * .46), mark)
+            comp(cv, mk.crop((0, 0, max(1, int(mk.width * p)), mk.height)), x - 16, y + size * .56)
+    rise(cv, im, x - PAD, y - PAD, ent(t, delay, .36), 64)
 
 
 def build_reel(indir, work, phone_mp4, at, out):
     W, H = 1080, 1920
     wr = Writer(work / "reel_silent.mp4", W, H)
     sfx = []
-    NSEG = 3 + len(REEL) + 1
+    NSEG = 4 + len(REEL) + 1
     seg_i = [0]
+    flat = lambda c: Image.new("RGBA", (W, H), tuple(c) + (255,))
+    bgDark, bgBlue, bgPaper, bgWhite = flat(DARK), flat(BLUE), flat(PAPER), flat(WHITE)
 
-    def bar(cv, p, on_blue=False, base=BG):
+    def bar(cv, p, base, light=False):
         """맨 위 진행 조각. 몇 장면 중 어디인지 — 끝이 보여야 끝까지 봅니다."""
         d = ImageDraw.Draw(cv)
-        x0, x1, y, gap = 64, W - 64, 64, 10
+        x0, x1, y, gap = 64, W - 64, 64, 8
         sw = (x1 - x0 - gap * (NSEG - 1)) / NSEG
-        track = mix(BLUE, WHITE, .32) if on_blue else mix(base, INK, .13)
-        fill = WHITE if on_blue else INK
+        track = mix(base, WHITE, .22) if light else mix(base, INK, .12)
+        fill = WHITE if light else INK
         for i in range(NSEG):
             a, b = x0 + i * (sw + gap), x0 + i * (sw + gap) + sw
-            d.rounded_rectangle([a, y, b, y + 8], radius=4, fill=track + (255,))
+            d.rounded_rectangle([a, y, b, y + 6], radius=3, fill=track + (255,))
             if i < seg_i[0]:
-                d.rounded_rectangle([a, y, b, y + 8], radius=4, fill=fill + (255,))
+                d.rounded_rectangle([a, y, b, y + 6], radius=3, fill=fill + (255,))
             elif i == seg_i[0]:
-                d.rounded_rectangle([a, y, a + max(8, sw * clamp(p)), y + 8], radius=4, fill=fill + (255,))
+                d.rounded_rectangle([a, y, a + max(6, sw * clamp(p)), y + 6], radius=3, fill=fill + (255,))
 
-    def bubble(s, mine):
-        t = text_im(s, 62, "SemiBold", WHITE if mine else INK)
-        w, h = t.width - PAD * 2 + 92, 148
-        im = Image.new("RGBA", (w + 40, h + 40), (0, 0, 0, 0))
-        if not mine:
-            comp(im, shadow_im(w, h, 60, 12, 36), 20 - 36, 20 - 36 + 8)
-        im.alpha_composite(rrect_im(w, h, 60, (BLUE if mine else WHITE) + (255,)), (20, 20))
-        im.alpha_composite(t, (20 + 46 - PAD, 20 + int(h / 2 - 62 * .56) - PAD))
+    def bubble(s):
+        t = text_im(s, 54, "Bold", INK)
+        w, h = t.width - PAD * 2 + 84, 130
+        im = Image.new("RGBA", (w + 8, h + 8), (0, 0, 0, 0))
+        im.alpha_composite(rrect_im(w, h, 54, CHAT + (255,)), (4, 4))
+        im.alpha_composite(t, (4 + 42 - PAD, 4 + int(h / 2 - 54 * .56) - PAD))
         return im
 
-    # ── 훅 1: 문제 ─────────────────────────────────────────────────────
-    dur = BEAT * 6
-    bgA = bg_im(W, H, (247, 248, 250), (214, 229, 250), .6)
-    bubbles = [(1.0, bubble("아빠, 노래 바꿔 줘", False), 84), (2.0, bubble("아빠, 이거 말고 딴 거", False), 84),
-               (3.0, bubble("폰 줘 봐, 내가 할게", True), None)]
-    for _b, _im, _x in bubbles:
-        sfx.append((wr.t + _b * BEAT, "pop", .5))
-    sfx.append((wr.t + 4 * BEAT, "pop", .7))
+    # ── 1. 훅: 말풍선이 쏟아집니다 ─────────────────────────────────────
+    # 첫 1초에 '무슨 상황인지' 가 보여야 합니다. 설명하지 않고 보여 줍니다.
+    says = ["아빠, 노래 바꿔 줘", "아빠 이거 말고", "다른 거 틀어 줘", "아빠, 노래 바꿔 줘", "아빠아아",
+            "이 노래 싫어", "아빠, 노래 바꿔 줘", "폰 줘 봐, 내가 할게", "아빠 노래 좀!"]
+    spots = [(330, 520, -5), (720, 690, 4), (350, 870, 3), (740, 1040, -4), (330, 1210, 5),
+             (700, 1380, -3), (390, 1550, 4), (680, 1720, -5), (560, 360, 2)]
+    bubs = [bubble(s) for s in says]
+    label = pill_im("고속도로 3시간째  ·  운전 중", 36, "SemiBold", (214, 220, 228), (44, 49, 58), 30, 16)
+    x9 = pill_im("× 9", 190, "Bold", WHITE, RED, 80, 40)
+
+    def draw_bubbles(cv, t, a=1.0):
+        for i, (im, (x, y, r)) in enumerate(zip(bubs, spots)):
+            p = ent(t, .05 + i * .15, .3)
+            if p > 0:
+                comp_c(cv, im, x, y, oc(p * 2.5) * a, .45 + .55 * ob(p, 2.4), r + math.sin(t * 3 + i) * 1.2)
+
+    dur = BEAT * 4
+    for i in range(9):
+        sfx.append((wr.t + .05 + i * .15, "pop", .34 + .04 * (i % 3)))
     for k in range(frames(dur)):
         t = k / FPS
-        cv = bgA.copy()
-        bar(cv, t / dur, base=(247, 248, 250))
-        text(cv, "차에서 듣는 노래,", 84, 190, 98, "Bold", INK, ent(t, .0, .45))
-        text(cv, "왜 맨날 아빠 거죠?", 84, 190 + 122, 98, "Bold", BLUE, ent(t, .12, .45))
-        y = 640
-        for (b, im, x) in bubbles:
-            p = ent(t, b * BEAT, .34)
-            if p > 0:
-                cx = (x + im.width / 2 - 20) if x is not None else (W - 84 - im.width / 2 + 20)
-                comp_c(cv, im, cx, y + im.height / 2 - 20, oc(p * 2), .5 + .5 * ob(p))
-            y += 200
-        p = ent(t, 4 * BEAT, .4)
+        cv = bgDark.copy()
+        draw_bubbles(cv, t)
+        comp(cv, label, 64, 150, oc(ent(t, 0, .3)))
+        p = ent(t, 1.42, .34)
         if p > 0:
-            comp_c(cv, emoji_im("😩", 320), 330, 1440, oc(p * 2), .4 + .6 * ob(p), math.sin(t * 9) * 5)
-            comp_c(cv, pill_im("× 9", 96, "Bold", WHITE, RED, 54, 26), 720, 1400, oc(p * 2),
-                   .4 + .6 * ob(ent(t, 4 * BEAT + .08, .4)), -6)
-        text(cv, "세 시간 내내, 운전석 플레이리스트", W // 2, 1700, 46, "SemiBold", INK2,
-             ent(t, 4.4 * BEAT, .4), center=True)
+            sh = (1 - oc(ent(t, 1.42, .6))) * 10
+            comp_c(cv, x9, W // 2 + math.sin(t * 60) * sh, 960 + math.cos(t * 47) * sh, oc(p * 3),
+                   1.5 - .5 * ob(p, 1.2), -7)
+        bar(cv, t / dur, DARK, light=True)
+        wr.add(cv)
+    sfx.append((wr.t - dur + 1.42, "whoosh", .7))
+    seg_i[0] += 1
+
+    # ── 2. 이유 ───────────────────────────────────────────────────────
+    dur = BEAT * 4
+    sfx.append((wr.t, "swoosh", .6))
+    for k in range(frames(dur)):
+        t = k / FPS
+        cv = bgDark.copy()
+        draw_bubbles(cv, 9, lerp(1.0, .13, oc(ent(t, 0, .3))))
+        headline(cv, "바꿔 줄 사람은", 84, 760, 136, t, .02, WHITE)
+        headline(cv, "하필 운전 중.", 84, 760 + 164, 136, t, .14, CHAT)
+        text(cv, "주행 중 화면 조작은 가장 위험한 순간이에요", 88, 760 + 164 * 2 + 34, 42, "Medium",
+             (170, 178, 190), ent(t, .4, .4), dist=24)
+        bar(cv, t / dur, DARK, light=True)
         wr.add(cv)
     seg_i[0] += 1
 
-    # ── 훅 2: 이유 ─────────────────────────────────────────────────────
+    # ── 3. 그래서 ─────────────────────────────────────────────────────
     dur = BEAT * 4
-    bgB = bg_im(W, H, BLUE, (120, 178, 255), .7)
     sfx.append((wr.t, "whoosh", .7))
     for k in range(frames(dur)):
         t = k / FPS
-        cv = bgB.copy()
-        bar(cv, t / dur, on_blue=True)
-        for i, ln in enumerate(["바꿔 줄 수 있는", "단 한 사람은", "운전 중이니까요."]):
-            text(cv, ln, 84, 470 + i * 136, 108, "Bold", WHITE, ent(t, .02 + i * .11, .42), dist=60)
-        text(cv, "주행 중 화면 조작은 가장 위험한 순간", 88, 920, 42, "Medium", (214, 232, 255),
-             ent(t, .5, .4), dist=24)
-        e = oc(ent(t, .1, 1.4))
-        comp_c(cv, emoji_im("🚗", 330), lerp(-220, 760, e), 1380 + math.sin(t * 14) * 4, 1, 1, 0)
+        cv = Image.blend(bgDark, bgBlue, io(t / .2)) if t < .2 else bgBlue.copy()
+        headline(cv, "그래서,", 84, 720, 132, t, .04, WHITE)
+        headline(cv, "선곡권을 나눴어요", 84, 720 + 160, 118, t, .16, WHITE)
+        text(cv, "운전석 한 명에서, 차에 탄 모두에게", 88, 720 + 160 + 150, 44, "SemiBold", (214, 232, 255),
+             ent(t, .42, .4), dist=24)
+        bar(cv, t / dur, BLUE, light=True)
         wr.add(cv)
     seg_i[0] += 1
 
-    # ── 제목 ──────────────────────────────────────────────────────────
+    # ── 4. 제목 ───────────────────────────────────────────────────────
     dur = BEAT * 4
-    bgC = bg_im(W, H, WHITE, BLUE_SOFT, .9)
-    sfx.append((wr.t + .05, "ding", .7))
+    sfx.append((wr.t + .02, "ding", .7))
     seats = ["운전석", "조수석", "2열 좌", "2열 우"]
     for i in range(4):
-        sfx.append((wr.t + .55 + i * .13, "pop", .32))
+        sfx.append((wr.t + .6 + i * .12, "pop", .3))
     for k in range(frames(dur)):
         t = k / FPS
-        cv = bgC.copy()
-        bar(cv, t / dur, base=WHITE)
-        p = ent(t, 0, .5)
-        comp_c(cv, mark_im(260), W // 2, 760, oc(p * 2), .3 + .7 * ob(p), (1 - oc(p)) * -24)
-        text(cv, "플레이시트", W // 2, 960, 160, "Bold", INK, ent(t, .12, .45), center=True, dist=60)
-        text(cv, "모든 좌석에 선곡권을", W // 2, 1180, 60, "SemiBold", INK2, ent(t, .26, .45), center=True)
-        xs = [150, 150 + 200, 150 + 400, 150 + 600]
+        cv = Image.blend(bgBlue, bgWhite, io(t / .18)) if t < .18 else bgWhite.copy()
+        p = ent(t, 0, .45)
+        comp_c(cv, mark_im(250), W // 2, 740, oc(p * 2.5), .35 + .65 * ob(p, 2.0), (1 - oc(p)) * -20)
+        im = text_im("플레이시트", 176, "Display", INK)
+        rise(cv, im, (W - im.width) / 2, 930 - PAD, ent(t, .1, .4), 64)
+        text(cv, "차에 탄 모두가 고르는 플레이리스트", W // 2, 1150, 50, "SemiBold", INK2, ent(t, .26, .4), center=True)
         for i, s in enumerate(seats):
-            p = ent(t, .55 + i * .13, .36)
+            p = ent(t, .6 + i * .12, .34)
             if p > 0:
-                pl = pill_im(s, 44, "Bold", BLUE_INK, BLUE_SOFT, 32, 20)
-                comp_c(cv, pl, 162 + i * 252, 1380, oc(p * 2), .4 + .6 * ob(p))
+                comp_c(cv, pill_im(s, 44, "Bold", BLUE_INK, BLUE_SOFT, 32, 20), 162 + i * 252, 1340,
+                       oc(p * 2.5), .4 + .6 * ob(p, 2.2))
+        bar(cv, t / dur, WHITE)
         wr.add(cv)
     seg_i[0] += 1
 
-    # ── 기능 여섯 ─────────────────────────────────────────────────────
+    # ── 5. 이야기 ─────────────────────────────────────────────────────
     carA = Device(900, int(round(900 * CAR_CROP[1] / CAR_CROP[0])), 14, 16)
-    phA = Device(int(round(650 * 390 / 844)), 650, 11, 38, island=False)
+    phA = Device(int(round(650 * 390 / 844)), 650, 11, 38)
     carB = Device(640, int(round(640 * CAR_CROP[1] / CAR_CROP[0])), 11, 12)
-    phB = Device(int(round(1000 * 390 / 844)), 1000, 14, 52, island=False)
-    prev_bg = bgC
-    for i, (needle, lead, beats, lay, tag, l1, l2, small, emo, base, acc) in enumerate(REEL):
+    phB = Device(int(round(1010 * 390 / 844)), 1010, 14, 52)
+    prev_bg = bgWhite
+    for i, (needle, lead, beats, lay, l1, l2, small) in enumerate(REEL):
         dur = BEAT * beats
         start = at(needle) + lead
         cdev, pdev = (carA, phA) if lay == "car" else (carB, phB)
         rc = Reader(indir / "car.mp4", start, cdev.sw, cdev.sh, crop=CAR_CROP)
         rp = Reader(phone_mp4, start, pdev.sw, pdev.sh)
-        bgi = bg_im(W, H, base, mix(base, acc, .32), .75)
-        chip = pill_im(f"{i + 1:02d}  {tag}", 34, "Bold", WHITE, acc, 28, 14)
-        sfx.append((wr.t, "swoosh" if i % 2 else "whoosh", .65))
-        sfx.append((wr.t + .62, "pop", .45))
+        sfx.append((wr.t, "swoosh" if i % 2 else "whoosh", .55))
+        # 방향을 번갈아 줍니다. 매번 같은 쪽에서 들어오면 금방 눈에 익습니다.
+        side = -1 if i % 2 else 1
         for k in range(frames(dur)):
             t = k / FPS
             cf, pf = rc.next(), rp.next()
-            cv = Image.blend(prev_bg, bgi, io(t / .3)) if t < .3 else bgi.copy()
-            bar(cv, t / dur, base=base)
-            push = 1 + .035 * (t / dur)             # 장면 내내 아주 천천히 다가갑니다
-            e1, e2 = ent(t, .0, .9), ent(t, .12, .9)
+            cv = Image.blend(prev_bg, bgPaper, io(t / .2)) if t < .2 else bgPaper.copy()
+            push = 1 + .04 * (t / dur)             # 장면 내내 아주 천천히 다가갑니다
+            e1, e2 = ent(t, .0, .8), ent(t, .1, .8)
             if lay == "car":
-                # 차량 화면이 주인공. 폰은 오른쪽 아래에서 앞으로 겹쳐 섭니다.
                 o1, o2 = oc(e1), oc(e2)
-                cdev.draw(cv, cf, 540 + (1 - o1) * -90, 1010 + (1 - ob(e1, 1.1)) * 330,
+                cdev.draw(cv, cf, 540 + (1 - o1) * -110 * side, 1030 + (1 - ob(e1, 1.1)) * 320,
                           rx=6 + (1 - o1) * 16 + math.sin(t * 1.3) * .6,
-                          ry=-11 + (1 - o1) * -30 + math.sin(t * 1.1) * 1.4,
-                          rz=-1.5 + (1 - o1) * -5, s=push * (.84 + .16 * o1), a=oc(e1 * 3))
-                pdev.draw(cv, pf, 812 + (1 - o2) * 240, 1500 + (1 - ob(e2, 1.1)) * 260,
-                          rx=5 + math.sin(t * 1.2 + 1) * .7, ry=15 + (1 - o2) * 34 + math.sin(t * 1.0 + .6) * 1.6,
-                          rz=4 + (1 - o2) * 9, s=push * (.84 + .16 * o2), a=oc(e2 * 3))
-                ex, ey = 236, 1560
+                          ry=(-11 + (1 - o1) * -30) * side + math.sin(t * 1.1) * 1.4,
+                          rz=(-1.5 + (1 - o1) * -5) * side, s=push * (.84 + .16 * o1), a=oc(e1 * 3))
+                px = 812 if side > 0 else 268
+                pdev.draw(cv, pf, px + (1 - o2) * 240 * side, 1510 + (1 - ob(e2, 1.1)) * 260,
+                          rx=5 + math.sin(t * 1.2 + 1) * .7,
+                          ry=(15 + (1 - o2) * 34) * side + math.sin(t * 1.0 + .6) * 1.6,
+                          rz=(4 + (1 - o2) * 9) * side, s=push * (.84 + .16 * o2), a=oc(e2 * 3))
             else:
-                # 폰이 주인공. 차량 화면은 뒤에서 비스듬히.
                 o1, o2 = oc(e2), oc(e1)
-                cdev.draw(cv, cf, 356 + (1 - o1) * -260, 900 + (1 - o1) * 60,
-                          rx=7, ry=20 + (1 - o1) * 22 + math.sin(t * 1.0) * 1.2, rz=-5 + (1 - o1) * -6,
-                          s=push * (.86 + .14 * o1), a=oc(e2 * 3))
-                pdev.draw(cv, pf, 640 + (1 - o2) * 60, 1304 + (1 - ob(e1, 1.1)) * 420,
+                cx_c = 356 if side > 0 else 724
+                cdev.draw(cv, cf, cx_c + (1 - o1) * -260 * side, 910 + (1 - o1) * 60,
+                          rx=7, ry=(20 + (1 - o1) * 22) * side + math.sin(t * 1.0) * 1.2,
+                          rz=(-5 + (1 - o1) * -6) * side, s=push * (.86 + .14 * o1), a=oc(e2 * 3))
+                cx_p = 640 if side > 0 else 440
+                pdev.draw(cv, pf, cx_p + (1 - o2) * 60 * side, 1316 + (1 - ob(e1, 1.1)) * 420,
                           rx=5 + (1 - o2) * 14 + math.sin(t * 1.2) * .6,
-                          ry=-10 + (1 - o2) * -28 + math.sin(t * 1.1 + .4) * 1.3,
-                          rz=2 + (1 - o2) * 6, s=push * (.84 + .16 * o2), a=oc(e1 * 3), thick=20)
-                ex, ey = 196, 1560
-            # 글자 — 번호표, 큰 두 줄, 작은 한 줄. 한 줄씩 떠오릅니다.
-            p = ent(t, .02, .36)
-            comp_c(cv, chip, 84 + chip.width / 2, 168 + chip.height / 2, oc(p * 2), .6 + .4 * ob(p))
-            text(cv, l1, 84, 268, 106, "Bold", INK, ent(t, .08, .42), dist=60)
-            text(cv, l2, 84, 268 + 128, 106, "Bold", acc, ent(t, .19, .42), dist=60)
-            text(cv, small, 88, 268 + 128 * 2 + 22, 42, "SemiBold", INK2, ent(t, .34, .42), dist=26)
-            # 스티커
-            p = ent(t, .62, .42)
-            if p > 0:
-                em = emoji_im(emo, 230)
-                comp_c(cv, shadow_im(150, 60, 30, 22, 60), ex, ey + 128, oc(p * 2) * .8, .6 + .4 * ob(p))
-                comp_c(cv, em, ex, ey + math.sin(t * 3.2) * 9, oc(p * 2), .3 + .7 * ob(p, 2.2),
-                       math.sin(t * 2.6) * 7)
+                          ry=(-10 + (1 - o2) * -28) * side + math.sin(t * 1.1 + .4) * 1.3,
+                          rz=(2 + (1 - o2) * 6) * side, s=push * (.84 + .16 * o2), a=oc(e1 * 3), thick=20)
+            headline(cv, l1, 84, 176, 112, t, .04, INK)
+            headline(cv, l2, 84, 176 + 136, 112, t, .15, INK, mark=YELLOW)
+            text(cv, small, 88, 176 + 136 * 2 + 26, 42, "SemiBold", INK2, ent(t, .36, .4), dist=26)
+            bar(cv, t / dur, PAPER)
             wr.add(cv)
         rc.close(); rp.close()
-        prev_bg = bgi
+        prev_bg = bgPaper
         seg_i[0] += 1
 
-    # ── 끝 ────────────────────────────────────────────────────────────
-    dur = BEAT * 7
+    # ── 6. 끝 ─────────────────────────────────────────────────────────
+    dur = BEAT * 8
     sfx.append((wr.t, "whoosh", .6))
-    sfx.append((wr.t + .25, "chime", .8))
+    sfx.append((wr.t + .2, "chime", .7))
     for k in range(frames(dur)):
         t = k / FPS
-        cv = Image.blend(prev_bg, bgB, io(t / .25)) if t < .25 else bgB.copy()
-        bar(cv, t / dur, on_blue=True)
-        p = ent(t, 0, .5)
-        comp_c(cv, mark_im(200, WHITE, BLUE), W // 2, 560, oc(p * 2), .3 + .7 * ob(p), (1 - oc(p)) * 24)
-        text(cv, "플레이시트", W // 2, 730, 156, "Bold", WHITE, ent(t, .1, .45), center=True, dist=60)
-        text(cv, "차의 모든 좌석이", W // 2, 990, 66, "SemiBold", WHITE, ent(t, .26, .45), center=True)
-        text(cv, "DJ 부스가 됩니다", W // 2, 990 + 88, 66, "SemiBold", WHITE, ent(t, .36, .45), center=True)
-        p = ent(t, .6, .42)
-        if p > 0:
-            comp_c(cv, emoji_im("🎧", 250), W // 2, 1400 + math.sin(t * 3) * 8, oc(p * 2),
-                   .3 + .7 * ob(p, 2.2), math.sin(t * 2.4) * 6)
+        cv = Image.blend(prev_bg, bgBlue, io(t / .2)) if t < .2 else bgBlue.copy()
+        p = ent(t, 0, .45)
+        comp_c(cv, mark_im(210, WHITE, BLUE), W // 2, 600, oc(p * 2.5), .35 + .65 * ob(p, 2.0), (1 - oc(p)) * 20)
+        im = text_im("플레이시트", 180, "Display", WHITE)
+        rise(cv, im, (W - im.width) / 2, 780 - PAD, ent(t, .1, .4), 64)
+        text(cv, "차의 모든 좌석이", W // 2, 1040, 68, "Bold", WHITE, ent(t, .26, .4), center=True)
+        text(cv, "DJ 부스가 됩니다", W // 2, 1040 + 92, 68, "Bold", WHITE, ent(t, .36, .4), center=True)
         p = ent(t, .8, .4)
         if p > 0:
             pl = pill_im("Pleos Connect 차량용 앱 · 팀 Semicolon", 34, "Bold", BLUE_INK, WHITE, 34, 18)
-            comp_c(cv, pl, W // 2, 1650, oc(p * 2), .7 + .3 * ob(p))
-        text(cv, "github.com/coalfire-create/playseat", W // 2, 1736, 30, "Medium", (214, 232, 255),
+            comp_c(cv, pl, W // 2, 1420, oc(p * 2.5), .7 + .3 * ob(p))
+        text(cv, "github.com/coalfire-create/playseat", W // 2, 1500, 30, "Medium", (214, 232, 255),
              ent(t, 1.0, .4), center=True, dist=16)
+        bar(cv, t / dur, BLUE, light=True)
+        wr.add(cv)
+    # 음악의 마지막 한 방이 울리는 동안 화면을 붙들어 둡니다.
+    for _ in range(frames(1.6)):
         wr.add(cv)
     wr.close()
-    add_audio(work / "reel_silent.mp4", out, sfx, 48, -15, crf=21)
+    add_audio(work / "reel_silent.mp4", out, sfx, 0, -14, crf=21, reel=True)
 
 
 # ── 진입 ────────────────────────────────────────────────────────────────
