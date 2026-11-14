@@ -91,7 +91,7 @@ object Recommend {
         val picked = Catalog.byIds(ids.shuffled())
             .filterNot { normalize(it.title, it.artist) in exclude }
 
-        if (!kidsAboard) return MusicSearch.withArtwork(picked.take(n))
+        if (!kidsAboard) return MusicSearch.withCatalogExtras(picked.take(n))
 
         // 동요는 두 번째 자리에 끼웁니다. 맨 앞에 두면 분위기를 읽은 결과가 아니라
         // "아이가 탔으니 동요" 로만 보입니다. 비 오는 날에 뽀로로가 먼저 나오면
@@ -101,7 +101,7 @@ object Recommend {
         val merged = picked.toMutableList()
         if (kid != null) merged.add(minOf(1, merged.size), kid)
 
-        return MusicSearch.withArtwork(merged.distinctBy { it.externalId }.take(n))
+        return MusicSearch.withCatalogExtras(merged.distinctBy { it.externalId }.take(n))
     }
 
     /** 제외 목록 비교용. 큐의 곡은 외부 id 가 다를 수 있어 제목+가수로 봅니다. */
@@ -114,15 +114,9 @@ object Recommend {
         put("ts", System.currentTimeMillis())
         put("mood", mood)
         putJsonArray("items") {
-            items.forEach { item ->
-                add(buildJsonObject {
-                    put("title", item.title)
-                    put("artist", item.artist)
-                    put("durationMs", item.durationMs)
-                    put("externalId", item.externalId)
-                    item.artworkUrl?.let { put("artworkUrl", it) }
-                })
-            }
+            // 검색 결과와 똑같은 모양으로 씁니다. 분위기 추천으로 담은 곡도
+            // 소리가 나야 하므로 미리듣기 필드가 빠지면 안 됩니다.
+            items.forEach { item -> add(buildJsonObject { with(MusicSearch) { putItem(item) } }) }
         }
     }
 

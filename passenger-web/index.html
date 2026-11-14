@@ -130,6 +130,36 @@
   .bar{height:3px;background:var(--line);margin-top:18px}
   .bar i{display:block;height:100%;background:var(--accent);transition:width .9s linear}
   .times{display:flex;margin-top:10px;font-size:12.5px;color:var(--sub)}
+  /* 전체 음원이 아니라는 사실을 숨기지 않습니다. 작게, 그러나 분명히 적습니다. */
+  .badge{display:inline-block;margin-left:7px;padding:2px 7px;border-radius:999px;
+         background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600;
+         vertical-align:middle}
+
+  /* 도착 맞춤 편성 — 큐와 남은 시간을 같은 자에 올려 놓습니다. */
+  .plan{margin-top:14px}
+  .plan .track{position:relative;height:16px;background:var(--cell2);border-radius:3px;
+               overflow:hidden;display:flex}
+  .plan .seg{height:100%;border-right:1px solid var(--bg);box-sizing:border-box}
+  .plan .seg.now{background:var(--accent)}
+  .plan .seg.q{background:var(--line)}
+  /* 도착선이 걸쳐 버리는 곡. 잘리는 부분이라 사선으로 긋습니다. */
+  .plan .seg.cut{background:repeating-linear-gradient(135deg,
+                 var(--sub) 0 3px, transparent 3px 6px);opacity:.75}
+  .plan .mark{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--fg)}
+  .plan .foot2{display:flex;align-items:center;gap:10px;margin-top:9px;
+               font-size:12.5px;color:var(--sub)}
+  .plan .foot2 b{color:var(--fg);font-weight:600}
+  .plan .foot2 button{margin-left:auto}
+
+  /* 좌석 지분 — 막지 않고 보여 주기만 합니다. */
+  .share{margin-top:14px}
+  .share .track{height:8px;border-radius:999px;overflow:hidden;display:flex;background:var(--cell2)}
+  .share .seg{height:100%;background:var(--accent)}
+  .share .keys{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:9px;
+               font-size:12px;color:var(--sub)}
+  .share .keys i{display:inline-block;width:8px;height:8px;border-radius:2px;
+                 background:var(--accent);margin-right:6px;vertical-align:middle}
+  .share .note2{margin-top:9px;font-size:12.5px;color:var(--sub)}
   .times span:last-child{margin-left:auto}
 
   /* ---------- 버튼 ---------- */
@@ -218,6 +248,7 @@
         <div class="r" id="cRow1"></div>
         <div class="r" id="cRow2"></div>
       </div>
+      <div id="shareSlot"></div>
     </section>
     <div class="hr"></div>
 
@@ -257,6 +288,7 @@
     <section class="sec">
       <div class="lbl">대기 중인 곡 <span class="n" id="qCount">0</span>
         <span class="r" id="qLen"></span></div>
+      <div id="planSlot"></div>
       <ul id="queue"></ul>
     </section>
     <div class="hr"></div>
@@ -309,6 +341,24 @@ if (!deviceId) {
 }
 let nickname = localStorage.getItem("playseat.nickname") || "";
 
+/**
+ * 탑승 코드.
+ *
+ * 차량 화면의 QR 안에만 들어 있는 네 자리입니다. QR 만으로 좌석을 열어 두면
+ * 주차장에서 찍어 둔 사진 한 장으로 남의 차 플레이리스트에 들어올 수 있습니다.
+ * 코드는 차 안 화면에만 있으므로 "그 차에 지금 타고 있다" 를 증명합니다.
+ * 계정도 비밀번호도 만들지 않고 그걸 증명하는 방법입니다.
+ *
+ * 한 번 받으면 저장해 둡니다. 차량이 다시 켜지면 코드가 바뀌므로 그때는
+ * 거절이 돌아오고, 그 자리에서 QR 을 다시 찍으라고 안내합니다.
+ */
+const urlCode = new URLSearchParams(location.search).get("c");
+if (urlCode) localStorage.setItem("playseat.joinCode", urlCode);
+let joinCode = localStorage.getItem("playseat.joinCode") || "";
+
+/** 좌석별 지분 색. 좌석 순서를 고정해 같은 자리가 늘 같은 농도로 보이게 합니다. */
+const SHARE_ALPHA = { R1L:1, R1R:.72, R2L:.5, R2C:.34, R2R:.22, AUTO:.14 };
+
 let ws = null, state = null, mySeat = null, results = [], carOnline = false;
 /* 머리말에 띄울 연결 상태. 끊긴 동안에는 주행 상태로 덮지 않습니다. */
 let link = "연결 중";
@@ -319,6 +369,19 @@ const mmss = (ms) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 const mins = (ms) => Math.round((ms || 0) / 60000);
+/**
+ * 실제로 재생되는 길이.
+ *
+ * durationMs 는 곡의 원래 길이이고, 미리듣기 음원은 그보다 짧게 끝납니다.
+ * 진행 바와 도착 계산은 '흐를 시간' 으로 해야 맞습니다.
+ */
+const playMs = (t) => (t && (t.playableMs || t.durationMs)) || 0;
+/** 분·초를 사람이 읽는 문장 조각으로. "1분 40초" / "40초" */
+const human = (ms) => {
+  const s = Math.max(0, Math.round(Math.abs(ms || 0) / 1000));
+  const m = Math.floor(s / 60);
+  return m ? (s % 60 ? `${m}분 ${s % 60}초` : `${m}분`) : `${s}초`;
+};
 function toast(msg) {
   const t = $("toast");
   t.textContent = msg; t.className = "on";
@@ -428,7 +491,13 @@ function connect() {
         SEAT_TAKEN:"이미 사용 중인 좌석입니다",
         DUPLICATE_VOTE:"이미 투표했습니다",
         DRIVING_RESTRICTED:"주행 중에는 제한됩니다",
+        BAD_JOIN_CODE:"차량 화면의 QR 을 다시 찍어주세요",
+        NO_FIT:"순서를 바꿔도 도착에 맞출 수 없습니다",
       }[m.reason] || m.reason);
+      // 코드가 틀렸다면 들고 있던 값이 낡은 것입니다. 지워서 다시 찍게 합니다.
+      if (m.reason === "BAD_JOIN_CODE") {
+        joinCode = ""; localStorage.removeItem("playseat.joinCode");
+      }
     }
   };
 }
@@ -502,7 +571,7 @@ function claim(seatId) {
   const typed = $("nick").value.trim();
   if (typed) { nickname = typed; localStorage.setItem("playseat.nickname", nickname); }
   if (!nickname) { $("nick").focus(); toast("표시할 이름을 먼저 적어주세요"); return; }
-  send({ type:"seat.claim", deviceId, seatId, nickname });
+  send({ type:"seat.claim", deviceId, seatId, nickname, joinCode });
 }
 
 /**
@@ -603,6 +672,7 @@ function render() {
     ? "앉은 사람은 누구나 바로 넣습니다" : "탑승을 기다리고 있습니다";
   $("cRow1").replaceChildren(...["R1L", "R1R"].map((id) => seatNode(id, {})));
   $("cRow2").replaceChildren(...["R2L", "R2C", "R2R"].map((id) => seatNode(id, {})));
+  renderShare();
 
   // 분위기 추천
   renderSuggestions();
@@ -616,13 +686,19 @@ function render() {
     $("npTitle").textContent = np.title;
     $("npArtist").textContent = np.artist;
     $("npBy").textContent = `${label(np.requestedBySeat)} 선곡`;
-    $("npTime").textContent = `${mmss(np.positionMs)} / ${mmss(np.durationMs)}`;
+    // 전체 음원이 아니라는 사실을 숨기지 않습니다. 길이도 실제로 흐르는 길이를 씁니다.
+    if (np.previewUrl) {
+      const b = document.createElement("span");
+      b.className = "badge"; b.textContent = `미리듣기 ${Math.round(playMs(np) / 1000)}초`;
+      $("npBy").append(b);
+    }
+    $("npTime").textContent = `${mmss(np.positionMs)} / ${mmss(playMs(np))}`;
     $("npSkip").textContent = `스킵 투표 ${(state.skipVotes || []).length}/${state.skipThreshold || "-"}`;
   } else {
     $("npTime").textContent = ""; $("npSkip").textContent = "";
   }
   $("npBar").style.width = np
-    ? Math.min(100, ((np.positionMs || 0) / Math.max(1, np.durationMs)) * 100) + "%" : "0";
+    ? Math.min(100, ((np.positionMs || 0) / Math.max(1, playMs(np))) * 100) + "%" : "0";
   $("bSkipIcon").hidden = $("npBarBox").hidden = $("npTimes").hidden = !np;
   $("bLike").disabled = $("bSkip").disabled = !np;
   $("bSkip").textContent = (state.skipVotes || []).includes(mySeat) ? "투표함" : "건너뛰기";
@@ -636,6 +712,7 @@ function render() {
   if (!q.length) {
     ql.innerHTML = `<li style="border:0"><span class="empty">앉은 사람이 폰에서 넣으면 여기에 쌓입니다</span></li>`;
   } else q.forEach((t, i) => ql.append(trackRow(t, { index:i + 1, by:true })));
+  renderPlan();
 
   $("foot").textContent = `${label(mySeat)} · ${nickname || deviceId}`;
 }
@@ -652,11 +729,13 @@ function trackRow(t, o) {
   const ti = document.createElement("div"); ti.className = "ti"; ti.textContent = t.title;
   const ar = document.createElement("div"); ar.className = "ar";
   ar.textContent = o.by ? `${t.artist} · ${label(t.requestedBySeat)}`
-                        : `${t.artist} · ${mmss(t.durationMs)}`;
+                        : `${t.artist} · ${mmss(playMs(t))}`;
   m.append(ti, ar); li.append(m);
   if (o.tail) li.append(o.tail(t));
   else { const d = document.createElement("span"); d.className = "dur";
-         d.textContent = mmss(t.durationMs); li.append(d); }
+         // 같은 화면에서 길이가 두 값으로 보이면 둘 중 하나는 거짓말입니다.
+         // 타임라인과 같은 자, 즉 실제로 흐를 길이로 적습니다.
+         d.textContent = mmss(playMs(t)); li.append(d); }
   return li;
 }
 
@@ -703,6 +782,99 @@ function renderSuggestions() {
   $("bNoThanks").onclick = () => { send({ type:"mood.dismiss", seatId:mySeat }); toast("이번에는 넘어갑니다"); };
 }
 
+/**
+ * 도착 맞춤 편성.
+ *
+ * 폰의 플레이리스트는 도착을 모릅니다. 그래서 마지막 곡은 늘 중간에 끊기고,
+ * 사람들은 그걸 당연하게 여깁니다. 차는 남은 시간을 알기 때문에 큐와 도착을
+ * 같은 자에 올려놓을 수 있습니다 — 도착선이 어느 곡 안에 떨어지는지가 보이면
+ * "마지막 곡이 잘린다" 를 말로 설명할 필요가 없습니다.
+ *
+ * 판정은 차가 합니다(cutIndex·arrivalSlackMs·fitPlan). 폰은 그리기만 합니다.
+ */
+function renderPlan() {
+  const slot = $("planSlot");
+  slot.replaceChildren();
+  if (!state.fitPlan || state.etaSeconds == null) return;
+
+  const eta = state.etaSeconds * 1000;
+  const np = state.nowPlaying;
+  const segs = [];
+  if (np) segs.push({ ms:Math.max(0, playMs(np) - (np.positionMs || 0)), cls:"now" });
+  (state.queue || []).forEach((t, i) =>
+    segs.push({ ms:playMs(t), cls:state.cutIndex === i ? "cut" : "q" }));
+  if (!segs.length) return;
+
+  const total = segs.reduce((a, x) => a + x.ms, 0);
+  // 도착이 큐보다 멀면 도착선이 오른쪽 끝에 와야 하므로 둘 중 큰 값에 맞춥니다.
+  const scale = Math.max(total, eta) || 1;
+
+  const box = node(`<div class="plan"><div class="track"></div>
+    <div class="foot2"><b></b><span></span></div></div>`);
+  const track = box.querySelector(".track");
+  segs.forEach((x) => {
+    const d = document.createElement("i");
+    d.className = "seg " + x.cls;
+    d.style.width = (x.ms / scale) * 100 + "%";
+    track.append(d);
+  });
+  const mark = document.createElement("i");
+  mark.className = "mark";
+  mark.style.left = `calc(${(eta / scale) * 100}% - 1px)`;
+  track.append(mark);
+
+  box.querySelector("b").textContent = state.fitPlan;
+  box.querySelector("span").textContent =
+    state.cutIndex != null ? "도착선이 걸친 곡" : "도착까지 여유";
+
+  // 차가 멋대로 바꾸지 않습니다. 맞출 수 있을 때만 권하고, 누르는 것은 사람입니다.
+  if (state.canFitArrival) {
+    const b = document.createElement("button");
+    b.className = "sm primary"; b.textContent = "도착에 맞추기";
+    b.onclick = () => { send({ type:"queue.fit", seatId:mySeat }); toast("도착에 맞춰 순서를 바꿉니다"); };
+    box.querySelector(".foot2").append(b);
+  }
+  slot.append(box);
+}
+
+/**
+ * 좌석 지분.
+ *
+ * 차례를 돌리지 않기로 했으니 한 사람이 계속 넣을 수 있습니다. 그래서 규칙으로
+ * 막는 대신 보이게만 합니다. 사람은 숫자로 혼나는 것보다 숫자를 보고 스스로
+ * 비켜 줍니다. 경고도 제한도 아니고, 사실입니다.
+ */
+function renderShare() {
+  const slot = $("shareSlot");
+  slot.replaceChildren();
+  const sh = (state.shares || []).filter((x) => x.percent > 0);
+  if (!sh.length) return;
+
+  const box = node(`<div class="share"><div class="track"></div>
+    <div class="keys"></div></div>`);
+  const track = box.querySelector(".track");
+  const keys = box.querySelector(".keys");
+  sh.forEach((x) => {
+    const d = document.createElement("i");
+    d.className = "seg";
+    d.style.width = x.percent + "%";
+    d.style.opacity = SHARE_ALPHA[x.seatId] ?? .2;
+    track.append(d);
+
+    const k = document.createElement("span");
+    const sw = document.createElement("i");
+    sw.style.opacity = SHARE_ALPHA[x.seatId] ?? .2;
+    k.append(sw, document.createTextNode(`${label(x.seatId)} ${x.percent}%`));
+    keys.append(k);
+  });
+  if (state.shareNote) {
+    const n = document.createElement("div");
+    n.className = "note2"; n.textContent = state.shareNote;
+    box.append(n);
+  }
+  slot.append(box);
+}
+
 function renderResults(msg) {
   const ul = $("results"); ul.replaceChildren();
   if (!results.length && !msg) { $("srcNote").textContent = ""; return; }   // 담은 뒤 비운 것
@@ -718,8 +890,11 @@ function renderResults(msg) {
       b.onclick = () => {
         // 낙관적 업데이트를 하지 않습니다. 다음 state.sync 로만 반영됩니다.
         // 커버 주소를 같이 넘깁니다. 차량 화면이 다시 찾지 않도록 폰이 들고 가는 값입니다.
+        // 커버와 음원 주소를 같이 넘깁니다. 차량 화면이 다시 찾지 않도록
+        // 폰이 들고 가는 값입니다. previewUrl 이 없으면 소리 없이 시간만 흐릅니다.
         send({ type:"queue.add", seatId:mySeat, title:t.title, artist:t.artist,
-               durationMs:t.durationMs, externalId:t.externalId, artworkUrl:t.artworkUrl });
+               durationMs:t.durationMs, externalId:t.externalId, artworkUrl:t.artworkUrl,
+               previewUrl:t.previewUrl, playableMs:t.playableMs });
         // 담았으면 검색은 끝난 것입니다. 결과를 치워 큐가 다시 보이게 합니다.
         results = []; $("q").value = ""; $("q").blur();
         renderResults(null); toast(`담았습니다 — ${t.title}`);

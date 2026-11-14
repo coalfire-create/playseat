@@ -1,8 +1,14 @@
 package dev.semicolon.playseat.car.vehicle
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import ai.pleos.playground.navi.constants.NavigationStatus
 import ai.pleos.playground.navi.data.DestinationArrivedInfo
 import ai.pleos.playground.navi.data.DrivingInfo
@@ -71,6 +77,14 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
     private var navi: NaviHelper? = null
     private var naviListener: NaviHelperEventListener? = null
 
+    /** 내비가 실제로 준 잔여 ETA. 경로가 없으면 null 입니다. */
+    private var routeEta: Int? = null
+
+    /** 시연용으로 주입한 잔여 ETA. [routeEta] 가 있으면 무시됩니다. */
+    private var demoEta: Int? = null
+    private var demoEtaReceiver: BroadcastReceiver? = null
+    private val ticker = Handler(Looper.getMainLooper())
+
     private var wiperListener: WiperStateListener? = null
     private var lowBeamListener: LightStateListener? = null
     private var steeringListener: SteeringWheelAngleListener? = null
@@ -94,6 +108,7 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
         subscribeCharging(v)
         subscribeNavi()
         subscribeEnvironment(v)
+        registerDemoEta()
     }
 
     // ---------- 분위기 신호 ----------
@@ -380,7 +395,57 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
         })
     }
 
-    private fun setEta(seconds: Int?) = _snapshot.update { it.copy(etaSeconds = seconds) }
+    private fun setEta(seconds: Int?) {
+        routeEta = seconds
+        pushEta()
+    }
+
+    /** 내비 값이 있으면 그것을, 없으면 주입값을 씁니다. 실차에서는 늘 내비가 이깁니다. */
+    private fun pushEta() {
+        val v = routeEta ?: demoEta
+        _snapshot.update { if (it.etaSeconds == v) it else it.copy(etaSeconds = v) }
+    }
+
+    /**
+     * 시연용 ETA 주입 통로.
+     *
+     * 도착 맞춤 편성은 내비의 잔여 ETA 가 있어야 보입니다. 그런데 에뮬레이터의
+     * 기본 위치가 국내가 아니어서 경로를 만들 수 없고, 경로가 없으면
+     * `onDrivingInfo` 가 오지 않아 이 기능이 화면에 전혀 나타나지 않습니다.
+     * 그래서 '있는 척' 하는 대신 **주입하는 통로를 공개**합니다 — 시연 영상에서
+     * 보이는 ETA 가 어디서 왔는지 숨기지 않는 것이 요점입니다.
+     *
+     *     adb shell am broadcast --user 10 \
+     *       -a dev.semicolon.playseat.DEMO_ETA --ei seconds 420
+     *
+     * 음수를 넣으면 주입을 해제합니다. 내비가 실제 경로를 주기 시작하면
+     * 주입값은 그 순간부터 무시됩니다([pushEta]). 그래서 실차 동작은 이 통로가
+     * 있든 없든 똑같습니다. 바꾸는 값은 '남은 시간' 하나뿐이고 차량을 조작하지
+     * 않습니다. 1초마다 스스로 줄어들어, 실제로 가까워지는 도착을 흉내 내지 않고
+     * 그냥 시간이 흐르게 합니다.
+     */
+    private fun registerDemoEta() {
+        val r = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val sec = intent?.getIntExtra(EXTRA_SECONDS, -1) ?: -1
+                demoEta = if (sec < 0) null else sec
+                Log.i(TAG, "시연 ETA 주입: ${demoEta ?: "해제"}")
+                pushEta()
+            }
+        }
+        ContextCompat.registerReceiver(
+            context, r, IntentFilter(ACTION_DEMO_ETA), ContextCompat.RECEIVER_EXPORTED,
+        )
+        demoEtaReceiver = r
+
+        val tick = object : Runnable {
+            override fun run() {
+                demoEta?.let { if (it > 0) { demoEta = it - 1; pushEta() } }
+                ticker.postDelayed(this, 1000)
+            }
+        }
+        ticker.postDelayed(tick, 1000)
+    }
 
     // ---------- 공통 ----------
 
@@ -398,6 +463,11 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
     }
 
     override fun stop() {
+        // Vehicle 초기화가 실패했어도 리시버·타이머는 떠 있을 수 있어 먼저 걷습니다.
+        ticker.removeCallbacksAndMessages(null)
+        demoEtaReceiver?.let { runCatching { context.unregisterReceiver(it) } }
+        demoEtaReceiver = null
+
         val v = vehicle ?: return
         @Suppress("DEPRECATION")
         runCatching {
@@ -425,6 +495,10 @@ class PleosVehicleSignalSource(private val context: Context) : VehicleSignalSour
 
     companion object {
         private const val TAG = "PleosVehicle"
+
+        /** 시연용 ETA 주입 (위 [registerDemoEta] 주석 참조). */
+        const val ACTION_DEMO_ETA = "dev.semicolon.playseat.DEMO_ETA"
+        const val EXTRA_SECONDS = "seconds"
 
         /**
          * Vehicle 2.3.2 의 착석 Boolean 이 실제와 반대라서 뒤집습니다.

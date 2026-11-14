@@ -39,6 +39,20 @@ const CAR_CROP = [856, 88, 2544, 1298];
 
 const adb = (...a) => { try { execFileSync("adb", a, { stdio: "ignore" }); } catch {} };
 
+/**
+ * 차량 화면에 뜬 탑승 코드.
+ *
+ * 코드는 차 안 화면과 QR 에만 있고 허브로는 나가지 않습니다. 흉내 폰에는
+ * 카메라가 없으니 기기 로그에서 읽습니다. 없으면 좌석 잡기가 전부 거절됩니다.
+ */
+function readJoinCode() {
+  try {
+    const out = execFileSync("adb", ["logcat", "-d", "-s", "CarViewModel:I"], { encoding: "utf8" });
+    const hits = [...out.matchAll(/탑승 코드 (\d{4})/g)];
+    return hits.length ? hits[hits.length - 1][1] : null;
+  } catch { return null; }
+}
+
 /** 화면이 꺼져 있거나 앱이 뒤로 가 있으면 까만 화면이 찍힙니다. */
 function wakeCar() {
   adb("shell", "svc", "power", "stayon", "true");
@@ -191,13 +205,15 @@ await phone?.shot("02_폰_좌석선택");
 
 // 타자마자는 큐가 비어 있습니다. 거기서 '차가 먼저 권하는' 장면이 나옵니다.
 console.log("2. 추천 — 아무도 안 넣을 때");
-for (const p of CAST) phones.push(await new Phone(p).connect());
+const joinCode = readJoinCode();
+if (!joinCode) console.warn("   (탑승 코드를 읽지 못했습니다 — 좌석 잡기가 거절될 수 있습니다)");
+for (const p of CAST) phones.push(await new Phone({ ...p, joinCode }).connect());
 
 // 2열 좌는 브라우저가 쓸 자리입니다. 좌석만 먼저 잡아 두고 바로 끊습니다 —
 // 좌석-기기 연결은 차량이 들고 있으므로, 같은 deviceId 로 브라우저가 열면
 // 그대로 '지호' 로 인식됩니다. 둘이 동시에 붙어 있으면 허브가 하나를 끊습니다.
 const seatBot = await new Phone({
-  deviceId: "demo-r2l", seatId: "R2L", nickname: "지호",
+  deviceId: "demo-r2l", seatId: "R2L", nickname: "지호", joinCode,
 }).connect();
 await sleep(1500);
 seatBot.close();
@@ -215,7 +231,8 @@ phones.forEach((p) => p.dismissSuggestion());
 await sleep(2000);
 
 console.log("3. 사람이 고른 곡");
-for (const [who, q] of [["엄마", "아이유"], ["서아", "아기상어"], ["서아", "뽀로로"]]) {
+// 음원이 실제로 붙는 곡으로 고릅니다 — 시안에 "미리듣기 30초" 배지가 보여야 합니다.
+for (const [who, q] of [["엄마", "폴킴"], ["서아", "아기상어"], ["서아", "핑크퐁"]]) {
   await phones.find((x) => x.nickname === who).add(q);
   await sleep(1800);
 }
@@ -224,37 +241,72 @@ carShot("05_차량_대기열");
 await openPhone({ claimed: true });
 await phone?.shot("06_폰_메인");
 
-console.log("4. 주행 — 운전자 화면 축약");
+console.log("4. 도착 맞춤 — 마지막 곡이 잘리지 않게");
+// 길이가 제각각인 곡이어야 '순서를 바꿔 맞춘다' 가 성립합니다. 미리듣기는 전부
+// 30초라서 그것만 쌓으면 어떻게 바꿔도 끝나는 시각이 같습니다.
+for (const [who, q] of [["엄마", "밤편지"], ["서아", "바람기 메모리"],
+                        ["엄마", "벚꽃 엔딩"], ["서아", "뽀로로"]]) {
+  await phones.find((x) => x.nickname === who).add(q);
+  await sleep(1200);
+}
+// 한 곡이 끝나야 좌석 지분이 생깁니다. 미리듣기 30초를 흘려보냅니다.
+await sleep(32000);
+
+// 도착선을 '세 번째 곡 한가운데' 에 떨어뜨립니다. 고정값을 넣으면 큐 상태에
+// 따라 엉뚱한 데 걸려 '맞출 조합이 없습니다' 가 뜹니다.
+{
+  const st = phones[0].state ?? {};
+  const pm = (t) => t.playableMs || t.durationMs;
+  let acc = st.nowPlaying ? Math.max(0, pm(st.nowPlaying) - (st.nowPlaying.positionMs || 0)) : 0;
+  const lens = (st.queue ?? []).map(pm);
+  const ends = lens.map((n) => (acc += n));
+  let target = null;
+  for (let k = 0; k < lens.length - 1; k++) {
+    const gap = Math.min(...lens.slice(k + 1)) + 12000;
+    if (lens[k + 1] > gap) { target = Math.round((ends[k] + gap) / 1000); break; }
+  }
+  adb("shell", "am", "broadcast", "--user", "10",
+      "-a", "dev.semicolon.playseat.DEMO_ETA", "--ei", "seconds", String(target ?? 660));
+  console.log(`   잔여 ETA ${Math.round((target ?? 660) / 60)}분 주입`);
+}
+await sleep(4000);
+carShot("07_차량_도착맞춤");
+await openPhone({ claimed: true });
+await phone?.shot("08_폰_도착맞춤");
+adb("shell", "am", "broadcast", "--user", "10",
+    "-a", "dev.semicolon.playseat.DEMO_ETA", "--ei", "seconds", "-1");
+
+console.log("5. 주행 — 운전자 화면 축약");
 await car.gear("Drive");
 await sleep(4000);
-carShot("07_차량_주행_축약");
+carShot("09_차량_주행_축약");
 await openPhone({ claimed: true });
-await phone?.shot("08_폰_주행_권한");
+await phone?.shot("10_폰_주행_권한");
 
-console.log("5. 비 — 분위기와 조명");
+console.log("6. 비 — 분위기와 조명");
 await car.wiper("Low");
 await sleep(5000);
-carShot("09_차량_주행_비");
+carShot("11_차량_주행_비");
 await openPhone({ claimed: true });
-await phone?.shot("10_폰_비");
+await phone?.shot("12_폰_비");
 
-console.log("6. 충전 라운지");
+console.log("7. 충전 라운지");
 await car.wiper("Off");
 await car.gear("Park");
 await sleep(2000);
 await car.charging(true);
 await sleep(4000);
-carShot("11_차량_충전라운지");
+carShot("13_차량_충전라운지");
 
-console.log("7. 야간");
+console.log("8. 야간");
 await car.charging(false);
 night(true);
 await sleep(5000);
-carShot("12_차량_야간");
+carShot("14_차량_야간");
 if (phone) {
   await phone.dark(true);
   await openPhone({ claimed: true });
-  await phone.shot("13_폰_야간");
+  await phone.shot("15_폰_야간");
   await phone.dark(false);
 }
 night(false);

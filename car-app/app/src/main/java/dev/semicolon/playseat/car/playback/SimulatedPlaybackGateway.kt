@@ -1,6 +1,7 @@
 package dev.semicolon.playseat.car.playback
 
 import dev.semicolon.playseat.car.session.TrackDto
+import dev.semicolon.playseat.car.session.playMs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -29,10 +30,13 @@ class SimulatedPlaybackGateway(
         job = scope.launch {
             var pos = track.positionMs ?: 0
             val step = TICK_MS * speed.coerceAtLeast(1)
-            while (isActive && pos < track.durationMs) {
+            // '실제로 흐를 길이' 로 셉니다. 미리듣기 음원은 30초인데 원곡 길이로
+            // 재면 소리가 끝난 뒤에도 위치가 계속 올라가, 화면에 0:56 / 0:30 처럼
+            // 길이를 넘긴 숫자가 뜹니다.
+            while (isActive && pos < track.playMs) {
                 delay(TICK_MS.toLong())
                 pos += step
-                onPosition(pos.coerceAtMost(track.durationMs))
+                onPosition(pos.coerceAtMost(track.playMs))
             }
             if (isActive) onCompleted()
         }

@@ -31,6 +31,7 @@ import dev.semicolon.playseat.car.session.SeatDto
 import dev.semicolon.playseat.car.session.SessionMode
 import dev.semicolon.playseat.car.session.SessionState
 import dev.semicolon.playseat.car.session.TrackDto
+import dev.semicolon.playseat.car.session.playMs
 import dev.semicolon.playseat.car.vehicle.DriveState
 import dev.semicolon.playseat.car.vehicle.SeatId
 import dev.semicolon.playseat.car.vehicle.SeatProfile
@@ -71,6 +72,8 @@ fun CarScreen(
     canListen: Boolean,
     onDriverSkip: () -> Unit,
     onListen: () -> Unit,
+    /** "도착에 맞추기". 폰의 `queue.fit` 과 같은 경로로 들어갑니다. */
+    onFitArrival: () -> Unit = {},
     debug: DebugActions? = null,
 ) {
     val p = pal
@@ -107,6 +110,9 @@ fun CarScreen(
                 Column(Modifier.weight(0.52f)) {
                     if (state.mode == SessionMode.CHARGING_LOUNGE) { LoungeNotice(); HLine() }
                     SeatMap(state, Modifier.weight(1f))
+                    // 지분은 좌석도 바로 아래에 둡니다. 어느 자리가 얼마나
+                    // 가져갔는지는 그 자리를 보면서 읽어야 뜻이 통합니다.
+                    if (state.shares.isNotEmpty()) { HLine(); ShareBar(state) }
                     HLine()
                     JoinRow(state, joinUrl)
                 }
@@ -120,7 +126,7 @@ fun CarScreen(
                     if (state.suggestions.isNotEmpty()) {
                         Box(Modifier.weight(1f)) { SuggestionList(state) }
                     } else {
-                        QueueList(state, Modifier.weight(1f))
+                        QueueList(state, Modifier.weight(1f), onFitArrival)
                     }
                 }
             }
@@ -229,7 +235,7 @@ private fun SuggestionList(state: SessionState) {
                     Spacer(Modifier.height(4.dp))
                     Text(t.artist, fontSize = 19.sp, color = p.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(mmss(t.durationMs), fontSize = 19.sp, color = p.sub)
+                Text(mmss(t.playMs), fontSize = 19.sp, color = p.sub)
             }
         }
         HLine()
@@ -424,6 +430,145 @@ private fun SeatSpot(
  */
 private const val CAR_ASPECT = 0.63f
 
+/* ---------------- 도착 맞춤 ---------------- */
+
+/**
+ * 도착 맞춤 타임라인.
+ *
+ * 폰의 플레이리스트는 도착을 모릅니다. 그래서 마지막 곡은 늘 주차장에서
+ * 끊기고, 사람은 그걸 당연하게 여깁니다. 차는 ETA 를 알기 때문에 곡 경계와
+ * 도착선을 같은 자 위에 그릴 수 있습니다 — 이 띠가 "차 안에 있어야 하는
+ * 이유" 를 한 장으로 보여 주는 자리입니다.
+ *
+ * 숫자(초)로 쓰지 않고 띠로 그리는 이유는 비교가 목적이기 때문입니다.
+ * "3분 20초 / 4분 10초" 는 머리로 빼야 하고, 띠는 어디서 걸치는지를 그냥
+ * 보여 줍니다. 차가 멋대로 바꾸지는 않습니다 — 맞출 수 있을 때만 버튼이
+ * 뜨고, 누르는 것은 사람입니다.
+ */
+@Composable
+private fun ArrivalFit(state: SessionState, onFit: () -> Unit) {
+    val p = pal
+    val plan = state.fitPlan ?: return
+    val remainMs = state.etaSeconds?.let { it * 1000L } ?: return
+
+    // (시작, 길이, 지금 재생 중인지). 지금 곡은 '잔여' 만 그립니다 — 이미 들은
+    // 부분을 그리면 도착선 위치가 그만큼 틀립니다.
+    val segs = buildList<Triple<Long, Long, Boolean>> {
+        state.nowPlaying?.let { np ->
+            val left = (np.playMs - (np.positionMs ?: 0)).coerceAtLeast(0).toLong()
+            if (left > 0) add(Triple(0L, left, true))
+        }
+        var acc = sumOf { it.second }
+        state.queue.forEach { t ->
+            add(Triple(acc, t.playMs.toLong(), false))
+            acc += t.playMs.toLong()
+        }
+    }
+    if (segs.isEmpty()) return
+
+    val musicMs = segs.last().let { it.first + it.second }
+    // 도착선이 띠 밖으로 나가면 비교할 수 없습니다. 음악과 도착 중 긴 쪽에 자를 맞춥니다.
+    val span = maxOf(musicMs, remainMs, 1L)
+
+    Column(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 26.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("도착 맞춤", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = p.text)
+            Spacer(Modifier.width(18.dp))
+            Text(
+                plan, fontSize = 21.sp,
+                // 잘리는 상태일 때만 본문색으로 올립니다. 잘리지 않으면 읽을 필요가 없는 줄입니다.
+                color = if (state.cutIndex != null) p.text else p.sub,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.weight(1f))
+            if (state.canFitArrival) {
+                TextButton(onFit) {
+                    Text("도착에 맞추기", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = p.accent)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+        BoxWithConstraints(Modifier.fillMaxWidth().height(44.dp)) {
+            val w = maxWidth
+            segs.forEach { (startMs, lenMs, isNow) ->
+                val x = w * (startMs.toFloat() / span)
+                val segW = (w * (lenMs.toFloat() / span) - SEG_GAP).coerceAtLeast(2.dp)
+                Box(
+                    Modifier.offset(x, 0.dp).width(segW).height(20.dp).background(
+                        when {
+                            isNow -> p.accent
+                            // 도착선 뒤에서 시작하는 곡은 이번 구간에서 들리지 않습니다.
+                            // 지운 것이 아니라 다음 구간의 첫 곡이라 자리만 옅게 남깁니다.
+                            startMs >= remainMs -> p.line
+                            else -> p.sub.copy(alpha = 0.5f)
+                        }
+                    )
+                )
+            }
+            // 도착선. 화면에서 파랑을 쓰는 몇 안 되는 자리입니다.
+            val ax = w * (remainMs.toFloat() / span)
+            Box(Modifier.offset(ax, 0.dp).width(2.dp).fillMaxHeight().background(p.accent))
+            Text(
+                "도착",
+                Modifier.offset((ax - 46.dp).coerceAtLeast(0.dp), 26.dp),
+                fontSize = 18.sp, color = p.accent,
+            )
+        }
+    }
+}
+
+/** 곡 경계가 눈에 보이게 띠 사이를 띄웁니다. 붙여 두면 한 덩어리로 읽힙니다. */
+private val SEG_GAP = 3.dp
+
+/* ---------------- 좌석 지분 ---------------- */
+
+/**
+ * 이번 구간의 좌석별 지분.
+ *
+ * 차례를 돌리지 않는 대신 이 띠가 답입니다. 막는 장치가 아니라 보여 주는
+ * 장치입니다 — 누가 얼마나 들려줬는지 보이면, 많이 가져간 사람이 다음 곡을
+ * 스스로 양보합니다.
+ *
+ * 그래서 톤을 눌러 둡니다. 색을 쓰거나 1위를 굵게 하거나 경고 문구를 달면
+ * 그 순간 비난하는 화면이 되고, 사람은 비난받으면 양보하지 않고 변명합니다.
+ * 회색 단계로만 쌓고 글자는 작게 둡니다.
+ */
+@Composable
+private fun ShareBar(state: SessionState) {
+    val p = pal
+    if (state.shares.isEmpty()) return
+
+    Column(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 20.dp)) {
+        Text("이번 구간 지분", fontSize = 21.sp, fontWeight = FontWeight.SemiBold, color = p.text)
+        Spacer(Modifier.height(14.dp))
+
+        Row(Modifier.fillMaxWidth().height(10.dp)) {
+            state.shares.forEachIndexed { i, s ->
+                if (i > 0) Spacer(Modifier.width(3.dp))
+                Box(
+                    Modifier
+                        // 실제로 흐른 시간 그대로. 반올림한 퍼센트로 그리면 띠와 숫자가 어긋납니다.
+                        .weight(s.playedMs.toFloat().coerceAtLeast(1f))
+                        .fillMaxHeight()
+                        .background(p.text.copy(alpha = (0.72f - i * 0.13f).coerceAtLeast(0.18f)))
+                )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+            state.shares.forEach { s ->
+                Text("${label(s.seatId)} ${s.percent}%", fontSize = 19.sp, color = p.sub)
+            }
+        }
+        state.shareNote?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, fontSize = 19.sp, color = p.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
 /* ---------------- 참여 ---------------- */
 
 @Composable
@@ -457,6 +602,23 @@ private fun JoinRow(state: SessionState, joinUrl: String) {
                 else "새로 타는 사람은 이 QR을 스캔하세요",
                 fontSize = 20.sp, color = p.sub,
             )
+            // 탑승 코드.
+            //
+            // QR 로 들어온 폰은 주소에 실려 온 코드를 자동으로 갖습니다. 이 숫자를
+            // 크게 띄우는 것은 QR 이 안 읽힐 때(역광·젖은 화면) 손으로 넣기
+            // 위해서이고, 동시에 "이 코드는 차 안에서만 보인다" 는 사실이
+            // 보안의 전부라는 것을 사람에게 알려 줍니다.
+            state.joinCode?.let { code ->
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("탑승 코드", fontSize = 19.sp, color = p.sub)
+                    Spacer(Modifier.width(16.dp))
+                    Text(
+                        code, fontSize = 38.sp, fontWeight = FontWeight.Bold,
+                        color = p.text, letterSpacing = 8.sp,
+                    )
+                }
+            }
         }
     }
 }
@@ -488,7 +650,13 @@ private fun NowPlaying(state: SessionState, onSkip: () -> Unit) {
                     Spacer(Modifier.height(8.dp))
                     Text(np.artist, fontSize = 24.sp, color = p.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(8.dp))
-                    Text("${label(np.requestedBySeat)} 선곡", fontSize = 20.sp, color = p.sub)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${label(np.requestedBySeat)} 선곡", fontSize = 20.sp, color = p.sub)
+                        if (np.previewUrl != null) {
+                            Spacer(Modifier.width(14.dp))
+                            PreviewBadge()
+                        }
+                    }
                 }
             }
             if (np != null) {
@@ -504,13 +672,13 @@ private fun NowPlaying(state: SessionState, onSkip: () -> Unit) {
             Box(Modifier.fillMaxWidth().height(4.dp).background(p.line)) {
                 Box(
                     Modifier
-                        .fillMaxWidth((pos.toFloat() / np.durationMs.coerceAtLeast(1)).coerceIn(0f, 1f))
+                        .fillMaxWidth((pos.toFloat() / np.playMs.coerceAtLeast(1)).coerceIn(0f, 1f))
                         .fillMaxHeight().background(p.accent)
                 )
             }
             Spacer(Modifier.height(12.dp))
             Row {
-                Text("${mmss(pos)} / ${mmss(np.durationMs)}", fontSize = 20.sp, color = p.sub)
+                Text("${mmss(pos)} / ${mmss(np.playMs)}", fontSize = 20.sp, color = p.sub)
                 Spacer(Modifier.weight(1f))
                 Text(
                     "스킵 투표 ${state.skipVotes.size}/${state.skipThreshold}",
@@ -524,7 +692,7 @@ private fun NowPlaying(state: SessionState, onSkip: () -> Unit) {
 /* ---------------- 대기열 ---------------- */
 
 @Composable
-private fun QueueList(state: SessionState, modifier: Modifier) {
+private fun QueueList(state: SessionState, modifier: Modifier, onFitArrival: () -> Unit) {
     val p = pal
     Column(modifier.fillMaxWidth()) {
         Row(
@@ -545,6 +713,11 @@ private fun QueueList(state: SessionState, modifier: Modifier) {
             }
         }
         HLine()
+        // 타임라인은 목록 바로 위에 둡니다. 띠의 몇 번째 칸이 목록의 몇 번째
+        // 줄인지가 눈으로 이어져야 "이 곡이 걸린다" 가 읽힙니다. 대기열 영역
+        // 안에 두는 이유도 있습니다 — 아래 목록이 스크롤을 가져가므로, 띠가
+        // 붙어도 화면이 밀리지 않습니다.
+        if (state.fitPlan != null) { ArrivalFit(state, onFitArrival); HLine() }
         if (state.queue.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("앉은 사람이 폰에서 넣으면 여기에 쌓입니다", fontSize = 21.sp, color = p.sub)
@@ -579,7 +752,7 @@ private fun QueueRow(index: Int, t: TrackDto) {
             )
         }
         Spacer(Modifier.width(16.dp))
-        Text(mmss(t.durationMs), fontSize = 20.sp, color = p.sub)
+        Text(mmss(t.playMs), fontSize = 20.sp, color = p.sub)
     }
 }
 
@@ -641,14 +814,14 @@ private fun DrivingView(
                     Box(
                         Modifier
                             .fillMaxWidth(
-                                ((np.positionMs ?: 0).toFloat() / np.durationMs.coerceAtLeast(1))
+                                ((np.positionMs ?: 0).toFloat() / np.playMs.coerceAtLeast(1))
                                     .coerceIn(0f, 1f)
                             )
                             .fillMaxHeight().background(p.accent)
                     )
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("${mmss(np.positionMs ?: 0)} / ${mmss(np.durationMs)}", fontSize = 20.sp, color = p.sub)
+                Text("${mmss(np.positionMs ?: 0)} / ${mmss(np.playMs)}", fontSize = 20.sp, color = p.sub)
             }
 
             Spacer(Modifier.height(44.dp))
@@ -694,7 +867,18 @@ private fun DrivingView(
                         fontSize = 23.sp, fontWeight = FontWeight.SemiBold, color = p.text,
                     )
                     Spacer(Modifier.height(7.dp))
-                    Text("곡이 끊기지 않게 마무리합니다", fontSize = 20.sp, color = p.sub)
+                    // 주행 중 도착 맞춤은 여기 한 줄까지입니다.
+                    //
+                    // 타임라인·버튼·목록을 주행 화면에 올리면 운전자가 읽기
+                    // 시작하고, 그때부터 이 앱은 자기 주장을 스스로 어깁니다.
+                    // 매니페스트의 distractionOptimized 선언도 이 화면이
+                    // 단순하다는 전제 위에 있습니다. 맞추는 조작은 정차 중에,
+                    // 또는 동승자 폰에서 합니다.
+                    Text(
+                        state.fitPlan ?: "곡이 끊기지 않게 마무리합니다",
+                        fontSize = 20.sp, color = p.sub,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
                 } else {
                     Text(
                         "주행 중에는 선곡 조작이 동승자 폰으로 넘어갑니다",
@@ -715,6 +899,15 @@ private fun DrivingView(
                     color = p.sub, fontSize = 21.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
+            }
+
+            // 랜딩 밖에서는 도착 맞춤을 이 한 줄로만 둡니다. 랜딩 안에서는 위
+            // 안내 상자가 같은 문장을 이미 들고 있어서 두 번 쓰지 않습니다.
+            if (!state.landing) {
+                state.fitPlan?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(it, color = p.sub, fontSize = 21.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }
@@ -745,6 +938,22 @@ private fun Artwork(url: String?, size: Dp, iconSize: Dp) {
                 contentScale = ContentScale.Crop,
             )
         }
+    }
+}
+
+/**
+ * 미리듣기 음원 표시.
+ *
+ * 플레이시트는 음원을 보유하지 않고 공개 API 의 30초 미리듣기를 흘립니다.
+ * 이것을 숨기면 심사장에서 30초마다 곡이 넘어가는 것을 버그로 봅니다.
+ * 적어 두면 '지금 붙어 있는 음원이 그렇다' 는 사실이 되고, 전체 음원은
+ * 기존 스트리밍 앱이 쥔다는 설계가 그대로 읽힙니다.
+ */
+@Composable
+private fun PreviewBadge() {
+    val p = pal
+    Box(Modifier.background(p.cellActive).padding(horizontal = 12.dp, vertical = 5.dp)) {
+        Text("미리듣기 30초", fontSize = 18.sp, color = p.sub)
     }
 }
 

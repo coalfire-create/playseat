@@ -1,5 +1,7 @@
 package dev.semicolon.playseat.hub
 
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
@@ -11,6 +13,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
+import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
@@ -56,6 +59,9 @@ fun Application.hubModule() {
         get("/health") { call.respondText("ok") }
         get("/stats") { call.respondText(SessionHub.stats()) }
 
+        // 미리듣기 음원 중계. 차량 앱의 MediaPlayer 가 직접 붙는 유일한 HTTP 경로입니다.
+        get("/audio") { relayAudio(call) }
+
         // 무드 추천을 눈으로 확인하는 용도. 차량은 WebSocket 으로 묻습니다.
         get("/recommend") {
             val mood = call.request.queryParameters["mood"].orEmpty()
@@ -75,6 +81,92 @@ fun Application.hubModule() {
         }
 
         webSocket("/session/{sessionId}") { handleSession() }
+    }
+}
+
+/**
+ * 미리듣기 음원 중계.
+ *
+ * 차량 앱은 자기가 아는 허브 주소 하나에만 붙고, 외부 CDN 은 모릅니다.
+ * 왜 중계하는지, 왜 허용 목록이 필요한지는 [AudioRelay] 주석에 적었습니다.
+ *
+ * 세 가지를 지킵니다.
+ *   - **허용 목록**: 토큰에 담긴 호스트가 Deezer 미리듣기 CDN 이 아니면 400.
+ *     이 검사가 없으면 허브가 아무 주소나 대신 받아 주는 공개 프록시가 됩니다.
+ *   - **Range 통과**: MediaPlayer 는 이어받기·탐색에 Range 를 씁니다. 요청 헤더를
+ *     상위로 넘기고 206 과 Content-Range 를 그대로 돌려줘야 탐색이 동작합니다.
+ *   - **스트리밍**: 받은 바이트를 바로 흘려보냅니다. 전체를 메모리에 담으면
+ *     좌석 네 개가 동시에 받을 때 허브가 먼저 쓰러집니다.
+ */
+private suspend fun relayAudio(call: ApplicationCall) {
+    val token = call.request.queryParameters["t"]
+    if (token.isNullOrBlank()) {
+        call.respondText("t 파라미터가 필요합니다", status = HttpStatusCode.BadRequest)
+        return
+    }
+
+    val payload = AudioRelay.decodeToken(token)
+    if (payload == null) {
+        call.respondText("토큰을 읽을 수 없습니다", status = HttpStatusCode.BadRequest)
+        return
+    }
+
+    // 토큰에는 곡 번호가 담겨 있고, 받아올 주소는 지금 다시 조회합니다.
+    // 미리듣기 주소는 발급 900초 뒤에 죽기 때문입니다 (AudioRelay.RESOLVE_TTL_MS).
+    // 어느 경로로 왔든 마지막에 허용 목록을 통과해야 흘려보냅니다 — 이 검사가
+    // 없으면 허브가 아무 주소나 대신 받아 주는 SSRF 대리인이 됩니다.
+    val upstream = AudioRelay.resolve(payload)
+    if (upstream == null) {
+        if (payload.startsWith(AudioRelay.TRACK_PREFIX)) {
+            log.warn("미리듣기 주소를 다시 찾지 못했습니다")
+            call.respondText("미리듣기를 찾지 못했습니다", status = HttpStatusCode.BadGateway)
+        } else {
+            log.warn("허용 목록 밖 음원 호스트 요청을 거절했습니다")
+            call.respondText(
+                "허용된 음원 호스트가 아닙니다 (${AudioRelay.ALLOWED_SUFFIX} 만 중계합니다)",
+                status = HttpStatusCode.BadRequest,
+            )
+        }
+        return
+    }
+
+    val range = call.request.header(HttpHeaders.Range)
+    try {
+        AudioRelay.client.prepareGet(upstream) {
+            range?.let { header(HttpHeaders.Range, it) }
+        }.execute { upstreamRes ->
+            if (upstreamRes.status.value !in 200..299) {
+                log.warn("상위 음원 HTTP {}", upstreamRes.status.value)
+                call.respondText(
+                    "상위 음원 조회 실패 (${upstreamRes.status.value})",
+                    status = HttpStatusCode.BadGateway,
+                )
+                return@execute
+            }
+
+            // Range 응답은 Content-Range 가 함께 와야 플레이어가 위치를 계산합니다.
+            upstreamRes.headers[HttpHeaders.ContentRange]
+                ?.let { call.response.header(HttpHeaders.ContentRange, it) }
+            call.response.header(HttpHeaders.AcceptRanges, "bytes")
+
+            call.respondBytesWriter(
+                contentType = ContentType.Audio.MPEG,
+                status = if (upstreamRes.status == HttpStatusCode.PartialContent)
+                    HttpStatusCode.PartialContent else HttpStatusCode.OK,
+                contentLength = upstreamRes.headers[HttpHeaders.ContentLength]?.toLongOrNull(),
+            ) {
+                upstreamRes.bodyAsChannel().copyTo(this)
+            }
+        }
+    } catch (e: Exception) {
+        // 재생 중에 차량이 연결을 끊으면(다음 곡으로 넘어감) 여기로 들어옵니다.
+        // 고장이 아니라 정상적인 중단이라, 응답을 이미 쓰기 시작했으면 조용히 끝냅니다.
+        if (call.response.isCommitted) {
+            log.debug("음원 중계 중단: {}", e.message)
+            return
+        }
+        log.warn("음원 중계 실패: {}", e.message)
+        call.respondText("상위 음원을 받을 수 없습니다", status = HttpStatusCode.BadGateway)
     }
 }
 

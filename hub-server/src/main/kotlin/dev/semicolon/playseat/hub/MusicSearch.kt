@@ -18,8 +18,13 @@ import java.util.concurrent.ConcurrentHashMap
  * 곡 검색.
  *
  * 플레이시트는 음원을 보유하지 않습니다. 좌석에서 올라온 선곡을 '요청'으로 만들기 위해
- * 곡명·아티스트·재생시간 메타데이터만 필요하고, 그것만 조회합니다.
- * 실제 재생은 차량의 음악 앱이 담당합니다.
+ * 곡명·아티스트·재생시간 메타데이터가 필요하고, 그것을 조회합니다.
+ *
+ * 다만 플레이리스트 앱인데 소리가 전혀 안 나면 아무것도 보여 줄 수 없어서,
+ * Deezer 가 응답마다 같이 주는 30초 미리듣기 주소를 함께 실어 보냅니다.
+ * 전체 음원이 아니라 30초짜리 맛보기이고, CDN 주소를 그대로 주는 대신 허브 중계
+ * 경로([AudioRelay.relayPath])로 바꿔서 줍니다. 정식 서비스에서는 이 자리에
+ * 사업자 음원 세션이 들어갑니다 — 자세한 이유는 [AudioRelay] 주석에 적었습니다.
  *
  * 2단 구성입니다.
  *   1. 큐레이션 목록([Catalog]) — 즉시·정확·오프라인. 국내 음원 위주
@@ -59,60 +64,87 @@ object MusicSearch {
     private val cache = ConcurrentHashMap<String, Pair<Long, JsonObject>>()
 
     /**
-     * 큐레이션 목록 곡의 앨범 커버.
+     * 큐레이션 목록 곡에 뒤에서 채워 넣는 값 — 앨범 커버와 미리듣기 주소.
      *
-     * 목록은 네트워크 없이 즉시·정확하게 답하는 것이 존재 이유라서 커버를 들고 있지
-     * 않습니다. 그렇다고 차량 화면에 자리표시자만 늘어놓을 수는 없으니,
-     * 서버가 뜬 뒤 뒤에서 천천히 Deezer 로 커버만 찾아 채워 둡니다.
-     * 검색 응답을 기다리게 하지 않고, 실패하면 그냥 커버가 없는 채로 둡니다.
+     * 목록은 네트워크 없이 즉시·정확하게 답하는 것이 존재 이유라서 둘 다 들고 있지
+     * 않습니다. 그렇다고 차량 화면에 자리표시자만 늘어놓거나 목록 곡만 소리가 안 나게
+     * 둘 수는 없으니, 서버가 뜬 뒤 뒤에서 천천히 Deezer 로 찾아 채워 둡니다.
+     * 검색 응답을 기다리게 하지 않고, 실패하면 그냥 비어 있는 채로 둡니다.
+     *
+     * 커버와 미리듣기를 한 캐시에 같이 담는 이유는 **같은 조회 한 번으로 둘 다
+     * 나오기** 때문입니다. Deezer 검색 응답 하나에 `album.cover_medium` 과
+     * `preview` 가 같이 들어 있어서, 따로 찾으면 똑같은 요청을 두 번 보내게 되고
+     * (Deezer 는 몰아 치면 막습니다) 더 나쁜 것은 두 번의 조회가 서로 다른 곡에
+     * 걸려 커버와 음원이 어긋날 수 있습니다.
      */
-    private val artCache = ConcurrentHashMap<String, String>()
+    private data class CatalogExtras(
+        val artworkUrl: String?,
+        val previewUrl: String?,
+        /** 그 곡의 Deezer 번호. 재생 시점에 미리듣기 주소를 다시 찾는 데 씁니다. */
+        val previewRef: String?,
+    )
+
+    private val extrasCache = ConcurrentHashMap<String, CatalogExtras>()
 
     private fun artKey(title: String, artist: String) =
         "${title.lowercase().trim()}|${artist.lowercase().trim()}"
 
     /** 허브 시작 직후 백그라운드에서 한 번 돕니다. */
     suspend fun warmCatalogArtwork() {
-        var found = 0
+        var art = 0
+        var preview = 0
         for (item in Catalog.all(Int.MAX_VALUE)) {
             val key = artKey(item.title, item.artist)
-            if (artCache.containsKey(key)) continue
-            val hit = runCatching { lookupArtwork(item) }.getOrNull()
-            if (hit != null) { artCache[key] = hit; found++ }
+            if (extrasCache.containsKey(key)) continue
+            val hit = runCatching { lookupExtras(item) }.getOrNull()
+            if (hit != null) {
+                extrasCache[key] = hit
+                if (hit.artworkUrl != null) art++
+                if (hit.previewUrl != null) preview++
+            }
             // Deezer 는 짧은 시간에 몰아 치면 막습니다. 급할 것 없으니 천천히 돕니다.
             delay(300)
         }
-        // 예열 전에 만들어진 응답에는 커버가 없으므로 버립니다.
+        // 예열 전에 만들어진 응답에는 커버도 미리듣기도 없으므로 버립니다.
         cache.clear()
-        log.info("큐레이션 목록 커버 {}/{}건 확보", found, Catalog.all(Int.MAX_VALUE).size)
+        val total = Catalog.all(Int.MAX_VALUE).size
+        log.info("큐레이션 목록 커버 {}/{}건, 미리듣기 {}/{}건 확보", art, total, preview, total)
+    }
+
+    /** 예열해 둔 커버·미리듣기를 붙여 돌려줍니다. 추천 목록도 같은 캐시를 씁니다. */
+    fun withCatalogExtras(items: List<Item>): List<Item> = items.map { item ->
+        val extras = extrasCache[artKey(item.title, item.artist)] ?: return@map item
+        item.copy(
+            artworkUrl = item.artworkUrl ?: extras.artworkUrl,
+            previewUrl = item.previewUrl ?: extras.previewUrl,
+            previewRef = item.previewRef ?: extras.previewRef,
+        )
     }
 
     /**
-     * 한 곡의 커버를 찾습니다.
+     * 목록 한 곡에 해당하는 Deezer 곡을 찾아 커버와 미리듣기를 같이 꺼냅니다.
      *
-     * 아티스트가 실제로 일치할 때만 받습니다. 제목만 같은 커버곡의 커버를 붙이면
-     * 화면에는 그럴듯하게 보여도 틀린 그림입니다. 못 찾으면 비워 두는 편이 낫습니다.
+     * 아티스트가 실제로 일치할 때만 받습니다. 제목만 같은 커버곡을 받으면 화면에는
+     * 그럴듯하게 보여도 틀린 그림이고, 이제는 **틀린 음원까지 재생됩니다** —
+     * "손오공 (SEVENTEEN) KARAOKE" 처럼 제목에 가수 이름이 들어간 노래방 음원이
+     * 실제로 붙었던 적이 있습니다. 관련도로 거르는 것으로는 막히지 않아서
+     * [ArtistAlias.sameArtist] 로 봅니다. 못 찾으면 비워 두는 편이 낫습니다.
+     *
      * 한글 표기로 안 되면 영문 표기로 한 번 더 물어봅니다 — Deezer 는 국내 아티스트를
      * 영문으로 색인합니다.
      */
-    /** 예열해 둔 커버를 붙여 돌려줍니다. 추천 목록도 같은 커버를 씁니다. */
-    fun withArtwork(items: List<Item>): List<Item> = items.map {
-        if (it.artworkUrl != null) it else it.copy(artworkUrl = artCache[artKey(it.title, it.artist)])
-    }
-
-    private suspend fun lookupArtwork(item: Item): String? {
-        // 아티스트 이름이 실제로 같을 때만 받습니다. 관련도로 거르면
-        // "손오공 (SEVENTEEN) KARAOKE" 처럼 제목에 가수 이름이 들어간
-        // 노래방 음원의 커버가 붙습니다. 실제로 그렇게 붙었습니다.
-        fun pick(list: List<Item>) =
-            list.firstOrNull { ArtistAlias.sameArtist(it.artist, item.artist) }?.artworkUrl
+    private suspend fun lookupExtras(item: Item): CatalogExtras? {
+        fun pick(list: List<Item>): CatalogExtras? =
+            list.firstOrNull { ArtistAlias.sameArtist(it.artist, item.artist) }
+                ?.let { CatalogExtras(it.artworkUrl, it.previewUrl, it.externalId) }
+                ?.takeIf { it.artworkUrl != null || it.previewUrl != null }
 
         pick(deezerRaw("${item.artist} ${item.title}", 5))?.let { return it }
 
         val foreign = ArtistAlias.foreignForm(item.artist.lowercase()) ?: return null
         delay(300)
         // 아티스트 이름만으로 더 찾아보고 싶어지지만, 그러면 이 곡이 아닌
-        // 다른 앨범의 커버가 붙습니다. 그건 틀린 그림이라 하지 않습니다.
+        // 다른 앨범의 커버와 음원이 붙습니다. 그건 틀린 그림이라 하지 않습니다.
         return pick(deezerRaw("$foreign ${item.title}", 5))
     }
 
@@ -125,6 +157,11 @@ object MusicSearch {
         val title: String = "",
         /** 초 단위. 계약은 ms 를 쓰므로 변환합니다. */
         val duration: Int = 0,
+        /**
+         * 30초 미리듣기 MP3 주소. Deezer 가 키 없이 검색 응답에 같이 줍니다.
+         * 간혹 비어 있는 곡이 있어서 null 을 허용합니다.
+         */
+        val preview: String? = null,
         val artist: DeezerArtist? = null,
         val album: DeezerAlbum? = null,
     )
@@ -141,7 +178,7 @@ object MusicSearch {
     suspend fun query(q: String, limit: Int): JsonObject {
         val needle = q.trim()
         val n = limit.coerceIn(1, 50)
-        if (needle.isEmpty()) return result(needle, Catalog.all(n), "catalog")
+        if (needle.isEmpty()) return result(needle, withCatalogExtras(Catalog.all(n)), "catalog")
 
         val key = "$needle/$n"
         cache[key]?.let { (at, cached) ->
@@ -150,7 +187,7 @@ object MusicSearch {
         }
 
         // 1) 큐레이션 목록에서 먼저 찾습니다. 예열된 커버가 있으면 붙입니다.
-        val local = withArtwork(Catalog.search(needle, n))
+        val local = withCatalogExtras(Catalog.search(needle, n))
 
         // 2) 모자라면 Deezer 로 보완합니다
         val remote = if (local.size >= n) emptyList() else
@@ -230,6 +267,8 @@ object MusicSearch {
                     durationMs = it.duration * 1000,
                     externalId = "deezer:${it.id}",
                     artworkUrl = it.album?.coverMedium,
+                    previewUrl = it.preview?.takeIf { url -> url.isNotBlank() },
+                    previewRef = "deezer:${it.id}",
                 )
             }
     }
@@ -240,24 +279,53 @@ object MusicSearch {
         val durationMs: Int,
         val externalId: String,
         val artworkUrl: String? = null,
+        /**
+         * 상위 미리듣기 음원 주소(Deezer CDN).
+         *
+         * 이 값은 허브 안에서만 씁니다. 밖으로 나갈 때는 [AudioRelay.relayPath] 를
+         * 거쳐 `"/audio?t=..."` 중계 경로로 바뀝니다 — 차량 앱이 외부 호스트를
+         * 모르게 하는 것이 목적입니다.
+         */
+        val previewUrl: String? = null,
+        /**
+         * 이 곡을 다시 찾을 수 있는 참조 (`deezer:<번호>`).
+         *
+         * [previewUrl] 은 발급 900초 뒤에 죽는 임시 주소여서, 중계 토큰에는 주소
+         * 대신 이 참조를 담습니다. 재생이 시작될 때 허브가 다시 조회합니다.
+         */
+        val previewRef: String? = null,
     )
 
-    private fun result(q: String, items: List<Item>, source: String) = buildJsonObject {
+    /**
+     * 검색 결과·추천 결과의 곡 한 개를 JSON 으로 씁니다.
+     *
+     * `search.result` 와 `mood.result` 가 같은 모양이어야 폰 웹앱이 두 목록을 같은
+     * 코드로 다룰 수 있습니다. 전에는 두 파일에 같은 필드 목록이 따로 적혀 있어서
+     * 한쪽에만 필드가 늘어난 적이 있었고, 그러면 분위기 추천으로 담은 곡만 조용히
+     * 소리가 안 납니다. 그래서 한곳에서 씁니다.
+     */
+    fun JsonObjectBuilder.putItem(item: Item) {
+        put("title", item.title)
+        put("artist", item.artist)
+        put("durationMs", item.durationMs)
+        put("externalId", item.externalId)
+        item.artworkUrl?.let { put("artworkUrl", it) }
+        // 미리듣기가 없으면 두 필드를 아예 빼 둡니다. 차량은 previewUrl 이 없으면
+        // 시간만 흐르는 시뮬레이션으로 떨어지므로, 빈 문자열보다 없는 게 분명합니다.
+        AudioRelay.relayPath(item.previewUrl, item.previewRef)?.let { path ->
+            put("previewUrl", path)
+            put("playableMs", AudioRelay.PREVIEW_MS)
+        }
+    }
+
+    internal fun result(q: String, items: List<Item>, source: String) = buildJsonObject {
         put("type", MsgType.SEARCH_RESULT)
         put("ts", System.currentTimeMillis())
         put("query", q)
         // 어느 소스에서 왔는지 남겨 둡니다. 시연 중 폴백으로 떨어졌는지 바로 알 수 있습니다.
         put("source", source)
         putJsonArray("items") {
-            items.forEach { t ->
-                addJsonObject {
-                    put("title", t.title)
-                    put("artist", t.artist)
-                    put("durationMs", t.durationMs)
-                    put("externalId", t.externalId)
-                    t.artworkUrl?.let { put("artworkUrl", it) }
-                }
-            }
+            items.forEach { t -> addJsonObject { putItem(t) } }
         }
     }
 }

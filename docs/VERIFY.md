@@ -104,6 +104,23 @@ I/PleosVehicle: 착석 감지 지원: [R2L, R2R, R2C, R1L, R1R]
 에뮬레이터 기본 위치가 Mountain View 라 국내 경로를 만들지 못했습니다.
 `ai.umos.maps.android.navigation.app.SET_DESTINATION` 인텐트가 있어 이쪽으로 더 볼 수 있습니다.
 
+**그래서 시연에서는 남은 시간을 주입합니다 (2026-11-14).**
+
+도착 맞춤 편성은 ETA 가 없으면 화면에 아무것도 나타나지 않습니다. 없는 신호를
+있는 척 만들어 내는 대신, **주입하는 통로를 공개**해 두었습니다.
+
+```bash
+adb shell am broadcast --user 10 \
+  -a dev.semicolon.playseat.DEMO_ETA --ei seconds 105     # 1분 45초
+adb shell am broadcast --user 10 \
+  -a dev.semicolon.playseat.DEMO_ETA --ei seconds -1      # 해제
+```
+
+주입값은 1초마다 스스로 줄어듭니다. `onDrivingInfo` 가 실제 경로를 주기
+시작하면 그 순간부터 주입값은 무시됩니다(`PleosVehicleSignalSource.pushEta`) —
+실차 동작은 이 통로가 있든 없든 같습니다. 바뀌는 값은 '남은 시간' 하나뿐이고
+차량을 조작하지 않습니다. 시연 영상의 자막에도 주입했다는 사실을 적습니다.
+
 ## 고친 것
 
 ### 1. SDK 의 착석 Boolean 이 뒤집혀 있습니다

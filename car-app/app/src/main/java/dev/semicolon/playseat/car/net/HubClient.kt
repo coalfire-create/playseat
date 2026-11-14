@@ -103,6 +103,10 @@ class HubClient(
                 durationMs = o["durationMs"]?.jsonPrimitive?.intOrNull ?: 210_000,
                 requestedBySeat = "AUTO",
                 artworkUrl = o["artworkUrl"]?.jsonPrimitive?.contentOrNull,
+                // 추천으로 담긴 곡도 소리가 나야 합니다. 폰이 고른 곡만 들리면
+                // 차가 권한 곡은 '빈 곡' 이 되어 추천 기능 자체가 망가져 보입니다.
+                previewUrl = o["previewUrl"]?.jsonPrimitive?.contentOrNull,
+                playableMs = o["playableMs"]?.jsonPrimitive?.intOrNull,
             )
         }
         onSuggestions(items)

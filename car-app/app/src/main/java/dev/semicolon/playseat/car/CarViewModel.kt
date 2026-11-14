@@ -1,6 +1,7 @@
 package dev.semicolon.playseat.car
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.res.Configuration
@@ -12,12 +13,12 @@ import dev.semicolon.playseat.car.playback.PlaybackGatewayFactory
 import dev.semicolon.playseat.car.session.AutoPick
 import dev.semicolon.playseat.car.session.DriveAlbumMsg
 import dev.semicolon.playseat.car.session.PhoneRequest
+import dev.semicolon.playseat.car.session.ReqType
 import dev.semicolon.playseat.car.session.SessionEngine
 import dev.semicolon.playseat.car.session.SessionState
 import dev.semicolon.playseat.car.vehicle.DriveState
 import dev.semicolon.playseat.car.vehicle.FakeVehicleSignalSource
 import dev.semicolon.playseat.car.vehicle.PleosVehicleSignalSource
-import dev.semicolon.playseat.car.vehicle.SeatId
 import dev.semicolon.playseat.car.vehicle.VehicleSignalSourceFactory
 import dev.semicolon.playseat.car.voice.VoiceCommands
 import dev.semicolon.playseat.car.voice.VoiceController
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 /**
  * 차량 신호 → 세션 엔진 → 허브·재생·음성을 잇습니다.
@@ -67,11 +69,29 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
     val usingRealPlayback: Boolean = playback.isReal
     val canListen: Boolean get() = voice.canListen
 
-    /** 동승자 폰이 열 주소. 차량 화면 QR 에 담깁니다. */
-    val joinUrl: String = "http://${BuildConfig.HUB_HOST}/?s=${BuildConfig.SESSION_ID}"
+    /**
+     * 차량 화면에 띄우는 네 자리 탑승 코드.
+     *
+     * 앱이 켜질 때 한 번 만듭니다. 주차장에 찍어 둔 QR 사진은 다음 주행에서
+     * 이미 틀린 코드를 들고 있게 됩니다.
+     */
+    private val joinCode: String = Random.nextInt(1000, 10_000).toString()
+
+    /**
+     * 동승자 폰이 열 주소. 차량 화면 QR 에 담깁니다.
+     *
+     * 코드를 주소에 실어 두면 QR 로 들어온 폰은 코드를 자동으로 갖게 되고,
+     * 사진만 가진 폰은 모릅니다 — 탄 사람에게는 아무 수고가 늘지 않습니다.
+     */
+    val joinUrl: String =
+        "http://${BuildConfig.HUB_HOST}/?s=${BuildConfig.SESSION_ID}&c=$joinCode"
 
     init {
         vehicle.start()
+        engine.setJoinCode(joinCode)
+        // 시연 스크립트가 흉내 폰에 코드를 쥐여 주려면 읽을 데가 있어야 합니다.
+        // 화면에 띄워 둔 네 자리이고 기기 안에만 남는 로그라 숨길 것이 없습니다.
+        Log.i(TAG, "탑승 코드 $joinCode")
 
         // 야간 여부는 차량 설정(AAOS uiMode)이 쥐고 있습니다. 신호원에 넣어 주면
         // 분위기 판정이 와이퍼·전조등과 같은 자리에서 그 값을 봅니다.
@@ -89,7 +109,13 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         viewModelScope.launch { vehicle.snapshot.collect { engine.onVehicle(it) } }
-        viewModelScope.launch { engine.state.collect { hub.send(it) } }
+        // 탑승 코드는 허브로 내보내지 않습니다.
+        //
+        // 상태를 그대로 뿌리면 코드가 모든 폰에 같이 갑니다. 그러면 QR 을 보지
+        // 못한 사람도 소켓만 열면 코드를 읽어 좌석을 잡을 수 있어서, 코드가
+        // 지키려던 것("그 차에 지금 타고 있다")을 코드 자신이 무너뜨립니다.
+        // 코드가 있는 곳은 차 안 화면과 그 화면의 QR, 두 곳뿐이어야 합니다.
+        viewModelScope.launch { engine.state.collect { hub.send(it.copy(joinCode = null)) } }
 
         // 곡이 바뀌면 누가 고른 무엇인지 읽어 줍니다. 주행 중에만입니다 —
         // 정차 중에는 운전자도 화면을 보면 되고, 매번 말하면 시끄럽습니다.
@@ -192,6 +218,17 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
 
     fun driverSkip() = engine.driverSkip()
 
+    /**
+     * 차량 화면의 "도착에 맞추기".
+     *
+     * 폰이 보내는 `queue.fit` 과 같은 경로로 들어갑니다 — 차 안 화면에서 눌러도
+     * 판정은 엔진이 하고, 맞출 조합이 없으면 아무것도 바뀌지 않습니다. 버튼은
+     * canFitArrival 일 때만 뜨므로 여기서 거절을 따로 알릴 데가 없습니다.
+     */
+    fun fitArrival() {
+        engine.onRequest(PhoneRequest(type = ReqType.QUEUE_FIT))
+    }
+
     /** 음성 버튼. 한 번 눌러 한 명령을 받습니다. */
     fun startListening() {
         if (!voice.canListen) {
@@ -228,12 +265,10 @@ class CarViewModel(app: Application) : AndroidViewModel(app) {
         super.onCleared()
     }
 
-    private fun seatLabel(seatId: String) = when (seatId) {
-        SeatId.R1L -> "운전석"
-        SeatId.R1R -> "조수석"
-        SeatId.R2L -> "2열 왼쪽"
-        SeatId.R2C -> "2열 가운데"
-        SeatId.R2R -> "2열 오른쪽"
-        else -> seatId
-    }
+    // 좌석 이름은 엔진의 것을 그대로 씁니다. 음성 안내와 지분 문장이 다른 말을
+    // 쓰면 같은 자리를 가리키는지 알 수 없습니다.
+    private fun seatLabel(seatId: String) = SessionEngine.seatLabel(seatId)
+
+    private companion object { const val TAG = "CarViewModel" }
+
 }

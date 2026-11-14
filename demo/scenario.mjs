@@ -128,10 +128,39 @@ class BrowserPhone {
     return title;
   }
   skip() { return this.eval(`document.getElementById("bSkip").click()`); }
+  /** 화면을 그 자리로 굴립니다. 영상에서 '어디를 눌렀는지' 가 보여야 합니다. */
+  async scrollTo(sel) {
+    await this.eval(`document.querySelector(${JSON.stringify(sel)})
+      ?.scrollIntoView({ behavior: "smooth", block: "center" })`);
+    await sleep(1400);
+  }
+  async scrollTop() {
+    await this.eval(`window.scrollTo({ top: 0, behavior: "smooth" })`);
+    await sleep(1200);
+  }
+
+  /** '도착에 맞추기'. 버튼이 없으면(맞출 조합이 없으면) false 를 돌려줍니다. */
+  fit() {
+    return this.eval(`(() => { const b = [...document.querySelectorAll("#planSlot button")]
+      .find((x) => x.textContent.includes("도착")); if (!b) return false; b.click(); return true; })()`);
+  }
+  /** 화면에 떠 있는 도착 맞춤 문장. 장면이 실제로 나왔는지 확인용입니다. */
+  plan() { return this.eval(`document.querySelector("#planSlot b")?.textContent ?? ""`); }
   close() { this.#ws?.close(); }
 }
 
 const adb = (...a) => { try { execFileSync("adb", a, { stdio: "ignore" }); } catch {} };
+
+/**
+ * 잔여 ETA 주입.
+ *
+ * 도착 맞춤 편성은 내비 ETA 가 있어야 화면에 나타납니다. 에뮬레이터 기본 위치가
+ * 국내가 아니어서 경로를 만들 수 없으므로, 차량 앱이 열어 둔 시연용 통로로
+ * 남은 시간을 넣습니다 (PleosVehicleSignalSource.registerDemoEta).
+ * 실차에서는 내비가 준 값이 이 주입값을 덮습니다. 음수면 해제입니다.
+ */
+const eta = (sec) => adb("shell", "am", "broadcast", "--user", "10",
+  "-a", "dev.semicolon.playseat.DEMO_ETA", "--ei", "seconds", String(sec));
 
 if (!has("no-restart") && !has("reset")) {
   // 세션 상태(좌석·큐·추천 스누즈)는 차량 앱이 들고 있습니다. 지난 실행이 남아 있으면
@@ -145,8 +174,28 @@ if (!has("no-restart") && !has("reset")) {
 
 const car = await new Console().open();
 
+/**
+ * 차량 화면에 뜬 탑승 코드를 읽습니다.
+ *
+ * 코드는 차 안 화면과 그 화면의 QR 에만 있고, 허브로는 나가지 않습니다. 사람은
+ * QR 을 찍어서 받지만 흉내 폰에는 카메라가 없으므로 기기 로그에서 읽어 옵니다.
+ * 못 읽으면 좌석 잡기가 전부 거절되니 여기서 바로 알려 줍니다.
+ */
+function readJoinCode() {
+  try {
+    const out = execFileSync("adb", ["logcat", "-d", "-s", "CarViewModel:I"], { encoding: "utf8" });
+    const hits = [...out.matchAll(/탑승 코드 (\d{4})/g)];
+    return hits.length ? hits[hits.length - 1][1] : null;
+  } catch { return null; }
+}
+
+const code = readJoinCode();
+if (code) console.log(`탑승 코드 ${code}`);
+else console.warn("탑승 코드를 읽지 못했습니다 — 좌석 잡기가 거절될 수 있습니다");
+
 /** 신호를 전부 초기 상태로. 시연은 늘 같은 자리에서 시작해야 합니다. */
 async function reset() {
+  eta(-1);
   await car.gear("Park");
   await car.wiper("Off");
   await car.headlamp("Off");
@@ -187,14 +236,14 @@ await scene("탑승 — 좌석이 곧 입장권", "좌석이 곧 입장권", asy
 
 await scene("폰 연결 — 최초 1회 QR, 다음부터 자동", "최초 1회 QR, 다음부터 자동 연결", async () => {
   for (const p of CAST) {
-    phones.push(await new Phone(p).connect());
+    phones.push(await new Phone({ ...p, joinCode: code }).connect());
     console.log(`   ${p.nickname} (${p.seatId}) 연결`);
     await wait(1.2);
   }
   // 2열 좌는 브라우저가 쓸 자리입니다. 좌석만 잡아 두고 바로 끊습니다 —
   // 같은 deviceId 로 둘이 붙으면 허브가 하나를 끊습니다.
   const seatBot = await new Phone({
-    deviceId: "demo-r2l", seatId: "R2L", nickname: "지호",
+    deviceId: "demo-r2l", seatId: "R2L", nickname: "지호", joinCode: code,
   }).connect();
   await sleep(1500);
   seatBot.close();
@@ -231,7 +280,10 @@ await scene("뒷자리 7살은 생각이 다릅니다", "뒷자리 7살은 생�
 await scene("그리고 멈추지 않습니다", "한 사람이 연달아 넣어도 막지 않습니다", async () => {
   // 독점을 규칙으로 막지 않습니다. 같이 탄 사람들은 서로 보고 있고,
   // 그래도 불만이면 스킵 투표가 있습니다.
-  for (const q of ["뽀로로", "핑크퐁"]) {
+  // 같은 곡을 또 넣습니다. 기획 배경에 적은 "조카가 같은 동요를 열 번 틀어
+  // 달라고 했다" 가 바로 이 장면입니다. 음원이 실제로 붙는 곡으로 고릅니다 —
+  // 소리가 안 나는 곡을 고르면 '실제로 재생된다' 를 보여 주는 장면이 빕니다.
+  for (const q of ["핑크퐁", "아기상어"]) {
     const t = await seoa().add(q);
     mark("beat", `서아 → ${t?.title ?? q}`);
     console.log(`   서아 → ${t ? `${t.title} — ${t.artist}` : q}`);
@@ -243,13 +295,13 @@ const browser = await new BrowserPhone().open();
 if (!browser) console.log("   (영상 속 폰이 없습니다 — 2열 좌 장면은 흉내 클라이언트 없이 지나갑니다)");
 
 await scene("각자 폰에서, 차례 없이", "각자 폰에서 차례 없이 넣습니다", async () => {
-  const t = await mom().add("밤편지");
-  mark("beat", `엄마 → ${t?.title ?? "밤편지"}`);
-  console.log(`   엄마 → ${t ? `${t.title} — ${t.artist}` : "밤편지"}`);
+  const t = await mom().add("폴킴");
+  mark("beat", `엄마 → ${t?.title ?? "폴킴"}`);
+  console.log(`   엄마 → ${t ? `${t.title} — ${t.artist}` : "폴킴"}`);
   await wait(3);
   if (browser) {
     mark("beat", "지호 → 검색어 입력");
-    const title = await browser.addFirst("NewJeans");
+    const title = await browser.addFirst("에스파");
     mark("beat", `지호 → ${title || "추가"}`);
     console.log(`   지호(영상 속 폰) → ${title || "(추가)"}`);
   }
@@ -300,11 +352,75 @@ await scene("굽잇길 — 조향 변동으로 지형을 읽습니다", "지도 
   await wait(4);
 });
 
-await scene("도착 — 기어 P, 운전자 화면이 다시 열립니다", "정차하면 운전자 화면이 다시 열린다", async () => {
+await scene("도착이 가까워집니다 — 마지막 곡이 잘리지 않게",
+            "폰은 도착을 모릅니다. 차는 압니다", async () => {
   await car.steering(0);
+
+  // 길이가 제각각인 곡이어야 '순서를 바꿔 맞춘다' 가 성립합니다.
+  //
+  // 미리듣기 음원은 전부 30초라서, 그것만 쌓으면 어떻게 바꿔도 끝나는 시각이
+  // 같습니다. 앱은 "맞출 조합이 없다" 고 정직하게 답하지만 그러면 이 기능이
+  // 화면에 나타나지 않습니다. 그래서 이 장면만 길이가 다른 곡으로 채웁니다.
+  for (const [who, q] of [[mom(), "밤편지"], [seoa(), "바람기 메모리"],
+                          [mom(), "벚꽃 엔딩"], [seoa(), "뽀로로"]]) {
+    const t = await who.add(q);
+    console.log(`   ${t ? `${t.title} — ${t.artist}` : q}`);
+    await sleep(900);
+  }
+  await wait(2);
+
+  // 남은 시간을 큐에서 거꾸로 계산해 넣습니다.
+  //
+  // 고정값을 넣으면 앞 장면에서 큐에 몇 곡이 남았느냐에 따라 도착선이 엉뚱한
+  // 데 떨어지고, 그러면 '맞출 조합이 없습니다' 가 뜹니다. 그건 앱이 정직한
+  // 것이지만 시연에서는 보여 줄 장면이 비어 버립니다. 그래서 "어느 곡에
+  // 걸치게 할지" 를 정하고 거기에 맞는 ETA 를 역산합니다. 바꾸는 것은
+  // 남은 시간 하나뿐이고, 판정은 전부 차가 합니다.
+  // 계산은 흉내 폰이 받은 state 로 합니다. 브라우저 쪽에서 읽으면 스크롤·렌더
+  // 타이밍에 걸려 가끔 빈 값이 나오고, 그러면 ETA 를 엉뚱하게 넣게 됩니다.
+  const st = mom()?.state ?? {};
+  const pm = (t) => t.playableMs || t.durationMs;
+  let acc = st.nowPlaying ? Math.max(0, pm(st.nowPlaying) - (st.nowPlaying.positionMs || 0)) : 0;
+  const lens = (st.queue ?? []).map(pm);
+  const ends = lens.map((n) => (acc += n));
+  let target = null;
+  for (let k = 0; k < lens.length - 1; k++) {
+    const gap = Math.min(...lens.slice(k + 1)) + 12000;   // 짧은 곡이 들어가고 조금 남는 틈
+    if (lens[k + 1] > gap) { target = Math.round((ends[k] + gap) / 1000); break; }
+  }
+  if (!target) console.warn("   (도착선을 놓을 자리를 찾지 못했습니다 — 큐 구성을 보세요)");
+
+  eta(target ?? 660);
+  mark("beat", `잔여 ETA ${Math.round((target ?? 660) / 60)}분 주입`);
+  console.log(`   도착까지 ${Math.round((target ?? 660) / 60)}분 → 큐 타임라인에 도착선이 그려집니다`);
+  await wait(5);
+  console.log(`   차량 판정: ${mom()?.state?.fitPlan ?? "(없음)"}`);
+
+  if (browser) {
+    // 폰에서도 타임라인이 보여야 합니다. 차 화면에만 있으면 '사람이 누른다' 는
+    // 장면이 빕니다 — 이 기능의 요점은 차가 멋대로 바꾸지 않는다는 것입니다.
+    await browser.scrollTo("#planSlot");
+    await wait(2);
+    console.log(`   폰 화면: ${await browser.plan() || "(비어 있음)"}`);
+    const ok = await browser.fit();
+    mark("beat", ok ? "지호 → 도착에 맞추기" : "맞출 조합이 없었습니다");
+    console.log(ok ? "   지호 → '도착에 맞추기'" : "   (맞출 조합이 없어 버튼이 없습니다)");
+    await wait(4);
+    console.log(`   결과: ${mom()?.state?.fitPlan ?? "(없음)"}`);
+    await browser.scrollTop();
+  }
+  console.log("   → 곡을 지우지 않고 순서만 바꿉니다. 마지막 곡이 도착과 함께 끝납니다");
+  await wait(4);
+});
+
+await scene("도착 — 기어 P, 운전자 화면이 다시 열립니다", "정차하면 운전자 화면이 다시 열린다", async () => {
+  eta(-1);
   await car.gear("Park");
   console.log("   → 전체 큐·검색·좌석 현황이 돌아옵니다");
-  await wait(7);
+  await wait(4);
+  mark("beat", "좌석 지분이 드러납니다");
+  console.log("   → 좌석별 선곡 지분이 띠로 보입니다. 막지 않고 보여 주기만 합니다");
+  await wait(5);
 });
 
 await scene("충전 라운지 — 정차해 있고 시간이 있다", "충전 중에는 라운지 모드", async () => {

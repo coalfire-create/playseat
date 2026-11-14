@@ -8,7 +8,7 @@
 | `scenario.mjs` | 시연 시나리오 자동 실행 (영상 녹화용) |
 | `record.mjs` | 차량 화면 + 폰 화면 동시 녹화 |
 | `compose.py` | 녹화본을 자막 얹은 한 편으로 편집 (가로 시연영상 + 세로 숏폼) |
-| `shots.mjs` | 화면 시안 13장 캡처 |
+| `shots.mjs` | 화면 시안 15장 캡처 |
 | `console.mjs` | Pleos Virtual Console 신호 주입 (좌석·기어·와이퍼·전조등·조향·충전) |
 | `phones.mjs` | 동승자 폰 흉내 (좌석 claim · 검색 · 곡 추가 · 투표) |
 | `mock-car.mjs` | 에뮬레이터 없이 차량 앱 흉내 |
@@ -77,12 +77,53 @@ python3 demo/compose.py           # 영상/ 에 완성본
 ## 화면 시안
 
 ```bash
-node demo/shots.mjs                 # docs/screens/ 에 13장
+node demo/shots.mjs                 # docs/screens/ 에 15장
 node demo/shots.mjs --no-phone      # 차량 화면만 (Chrome 없이)
 ```
 
 폰 화면은 헤드리스 Chrome 을 CDP 로 직접 몰아 390×844 @2x 로 찍습니다.
 차량 화면은 `adb exec-out screencap` 후 앱 영역만 잘라냅니다(Pillow 가 있으면).
+
+## 잔여 ETA 주입 — 도착 맞춤 편성을 보여 주려면
+
+도착 맞춤 편성은 내비의 잔여 ETA 가 있어야 화면에 나타납니다. 에뮬레이터 기본
+위치가 국내가 아니어서 경로를 만들 수 없으므로, 차량 앱이 열어 둔 통로로
+남은 시간을 넣습니다. 없는 신호를 있는 척 만드는 대신 **넣는 길을 공개**해
+두었고, 시연 영상 자막에도 주입했다고 적습니다.
+
+```bash
+adb shell am broadcast --user 10 \
+  -a dev.semicolon.playseat.DEMO_ETA --ei seconds 180   # 3분
+adb shell am broadcast --user 10 \
+  -a dev.semicolon.playseat.DEMO_ETA --ei seconds -1    # 해제
+```
+
+주입값은 1초마다 줄고, 내비가 실제 경로를 주기 시작하면 그때부터 무시됩니다.
+`scenario.mjs` 와 `shots.mjs` 는 이 값을 **큐에서 역산해서** 넣습니다 —
+고정값을 넣으면 그때그때 큐 길이에 따라 도착선이 엉뚱한 데 떨어져
+"맞출 조합이 없습니다" 가 뜨고, 그러면 보여 줄 장면이 비어 버립니다.
+
+## 탑승 코드
+
+차량 화면에 네 자리 코드가 뜨고 QR 에도 실립니다. 코드는 **허브로 나가지
+않으므로** 흉내 폰은 기기 로그에서 읽어 씁니다.
+
+```bash
+adb logcat -d -s CarViewModel:I | grep '탑승 코드'
+```
+
+사람이 QR 을 찍어 받는 것과 같은 값입니다. 코드를 못 읽으면 좌석 잡기가
+`BAD_JOIN_CODE` 로 전부 거절되므로, 두 스크립트 모두 시작할 때 한 번 읽습니다.
+
+## 소리
+
+곡이 실제로 재생됩니다. 다만 `adb screenrecord` 는 오디오를 담지 못해서
+**시연 영상에는 소리가 없습니다.** 재생이 실제로 일어나는지는 이렇게 봅니다.
+
+```bash
+adb shell dumpsys media_session | grep -A3 PlaySeat    # state=PLAYING, 곡명·아티스트
+adb logcat -d -s PlaySeatAudio                          # 폴백이 걸리면 여기 남습니다
+```
 
 ## 신호 주입만
 

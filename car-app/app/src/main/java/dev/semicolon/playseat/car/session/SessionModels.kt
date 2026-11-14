@@ -30,7 +30,27 @@ data class TrackDto(
      * 큐레이션 목록 곡은 비어 있을 수 있으므로 없을 때를 항상 그려야 합니다.
      */
     val artworkUrl: String? = null,
+    /**
+     * 실제로 소리가 나는 음원 주소 (v0.7).
+     *
+     * 허브가 중계하는 주소입니다. 플레이시트는 음원을 보유하지 않고, 공개 API 가
+     * 제공하는 30초 미리듣기를 허브가 받아 차량에 흘려 줍니다. 비어 있으면
+     * 소리 없이 시간만 흐르는 시뮬레이션으로 떨어집니다 — 재생이 안 되는 것과
+     * 큐가 멈추는 것은 다른 문제여서, 한쪽이 없어도 다른 쪽은 돌아야 합니다.
+     */
+    val previewUrl: String? = null,
+    /**
+     * 이 곡이 실제로 재생되는 길이 (v0.7).
+     *
+     * 미리듣기면 30초입니다. [durationMs] 는 곡의 원래 길이여서 화면에 그대로
+     * 보여 주되, 큐 길이·도착 맞춤 계산은 '실제로 흐를 시간' 으로 해야 맞습니다.
+     * null 이면 [durationMs] 를 씁니다.
+     */
+    val playableMs: Int? = null,
 )
+
+/** 큐 계산에 쓰는 길이. 화면에 쓰는 [TrackDto.durationMs] 와 구분합니다. */
+val TrackDto.playMs: Int get() = playableMs ?: durationMs
 
 /** 차량이 내려보내는 단일 진실 상태. */
 @Serializable
@@ -71,6 +91,43 @@ data class SessionState(
      */
     val suggestions: List<TrackDto> = emptyList(),
     val suggestAutoAddMs: Int? = null,
+
+    /**
+     * 차량 화면에 뜬 네 자리 탑승 코드 (v0.7).
+     *
+     * QR 만으로 좌석을 잡게 하면, 주차장에서 찍어 둔 사진 한 장으로 남의 차
+     * 플레이리스트에 들어올 수 있습니다. 코드는 차 안 화면에만 있으므로
+     * '그 차에 지금 타고 있다' 는 사실을 증명합니다. 착석 센서와 둘을
+     * 같이 보는 이유입니다 — 앉아 있고, 화면을 볼 수 있어야 참여합니다.
+     */
+    val joinCode: String? = null,
+
+    /**
+     * 도착 맞춤 편성 (v0.7).
+     *
+     * 폰의 플레이리스트는 도착을 모릅니다. 그래서 늘 마지막 곡이 중간에
+     * 끊기고, 사람은 그걸 당연하게 여깁니다. 차는 남은 시간을 알기 때문에
+     * '마지막 곡이 도착과 함께 끝나는' 편성을 만들 수 있습니다.
+     *
+     * [arrivalSlackMs] 는 도착까지 남는 시간입니다. 음수면 그만큼 잘립니다.
+     * [cutIndex] 는 도착이 걸쳐 버리는 큐 위치(0부터), 없으면 null.
+     * [fitPlan] 은 사람에게 보여 줄 한 문장이고, [canFitArrival] 가 true 면
+     * 순서를 바꿔 딱 맞출 수 있다는 뜻입니다 (`queue.fit` 요청).
+     */
+    val arrivalSlackMs: Long? = null,
+    val cutIndex: Int? = null,
+    val fitPlan: String? = null,
+    val canFitArrival: Boolean = false,
+
+    /**
+     * 좌석별 선곡 지분 (v0.7).
+     *
+     * 차례를 돌리지 않기로 했으므로 한 사람이 계속 넣을 수 있습니다. 그래서
+     * 규칙으로 막는 대신 보이게 합니다. 사람은 숫자로 혼나는 것보다 숫자를
+     * 보고 스스로 비켜 줍니다. 막지 않고 보여 주기만 하는 것이 요점입니다.
+     */
+    val shares: List<SeatShare> = emptyList(),
+    val shareNote: String? = null,
 ) {
     companion object {
 
@@ -89,6 +146,20 @@ data class SessionState(
         const val SUGGEST_SNOOZE_MS = 10 * 60_000L
     }
 }
+
+/**
+ * 이번 주행에서 한 좌석이 가져간 선곡 지분.
+ *
+ * [playedMs] 는 실제로 흐른 시간입니다. 넣기만 하고 스킵된 곡까지 지분으로
+ * 세면 "넣은 사람" 이 아니라 "들린 사람" 이 과대평가됩니다.
+ */
+@Serializable
+data class SeatShare(
+    val seatId: String,
+    val tracks: Int,
+    val playedMs: Long,
+    val percent: Int,
+)
 
 /** 차가 스스로 담은 곡의 "선곡한 좌석". 좌석 이름 자리에 이것이 옵니다. */
 object AutoPick {
@@ -137,6 +208,11 @@ data class PhoneRequest(
     val externalId: String? = null,
     val itemId: String? = null,
     val artworkUrl: String? = null,
+    /** 허브 검색 결과에 실려 온 값을 폰이 그대로 넘겨 줍니다 (v0.7). */
+    val previewUrl: String? = null,
+    val playableMs: Int? = null,
+    /** 차량 화면의 네 자리 코드. `seat.claim` 에서만 봅니다 (v0.7). */
+    val joinCode: String? = null,
 )
 
 @Serializable
@@ -158,6 +234,9 @@ object ReqType {
     /** 추천을 지금 담기 / 이번에는 그만두기 (v0.5). */
     const val MOOD_ACCEPT = "mood.accept"
     const val MOOD_DISMISS = "mood.dismiss"
+
+    /** 도착에 맞춰 큐 순서를 바꾸기 (v0.7). */
+    const val QUEUE_FIT = "queue.fit"
 }
 
 object RejectReason {
@@ -165,4 +244,10 @@ object RejectReason {
     const val SEAT_TAKEN = "SEAT_TAKEN"
     const val DUPLICATE_VOTE = "DUPLICATE_VOTE"
     const val DRIVING_RESTRICTED = "DRIVING_RESTRICTED"
+
+    /** 차량 화면의 코드와 다릅니다 (v0.7). 그 차에 타고 있지 않다는 뜻입니다. */
+    const val BAD_JOIN_CODE = "BAD_JOIN_CODE"
+
+    /** 어떻게 바꿔도 도착에 맞출 수 없습니다 (v0.7). */
+    const val NO_FIT = "NO_FIT"
 }
