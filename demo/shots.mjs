@@ -147,7 +147,19 @@ class Cdp {
   js(expression) { return this.cmd("Runtime.evaluate", { expression, awaitPromise: true }); }
 
   async shot(name) {
-    const r = await this.cmd("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+    // 캡처가 돌아오지 않을 때가 있습니다(화면에 전환 효과가 도는 순간).
+    // 무한정 기다리지 않고, 시간을 넘기면 잠깐 쉬었다 다시 찍습니다.
+    // 끝내 안 되면 보이는 영역만이라도 찍습니다.
+    let r = null;
+    for (let i = 0; i < 6 && !r?.data; i++) {
+      r = await Promise.race([
+        this.cmd("Page.captureScreenshot",
+          i < 4 ? { format: "png", captureBeyondViewport: true } : { format: "png" }),
+        sleep(5000).then(() => null),
+      ]);
+      if (!r?.data) await sleep(1200);
+    }
+    if (!r?.data) { console.log("   폰   (캡처 실패)", name); return; }
     const p = join(OUT, `${name}.png`);
     writeFileSync(p, Buffer.from(r.data, "base64"));
     console.log("   폰  ", p);

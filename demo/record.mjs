@@ -83,17 +83,20 @@ class PhoneCam {
     this.#ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
       if (m.id && this.#waiters.has(m.id)) { this.#waiters.get(m.id)(m.result); this.#waiters.delete(m.id); }
+      else if (m.method === "Page.screencastFrame") this.onFrame?.(m.params);
     };
     await this.cmd("Page.enable");
     await this.cmd("Emulation.setDeviceMetricsOverride",
-      { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+      // 화면 스트림은 1배율로만 나옵니다. 두 배 크기 화면에 페이지를 두 배로
+      // 키워 열면(`?zoom=2`) 배치는 390×844 그대로이고 글자는 선명하게 받습니다.
+      { width: 780, height: 1688, deviceScaleFactor: 1, mobile: true });
     await this.cmd("Emulation.setEmulatedMedia",
       { features: [{ name: "prefers-color-scheme", value: "light" }] });
     // 좌석은 scenario.mjs 가 미리 잡아 둡니다. 여기서는 그 자리로 들어가기만 합니다.
     //
     // localStorage 는 **오리진별**입니다. about:blank 에서 써 두면 페이지가
     // 못 읽습니다 — 먼저 페이지를 열고, 거기서 쓰고, 다시 읽습니다.
-    await this.cmd("Page.navigate", { url: `http://${HUB}/?s=a3f9` });
+    await this.cmd("Page.navigate", { url: `http://${HUB}/?s=a3f9&zoom=2` });
     await sleep(2000);
     await this.cmd("Runtime.evaluate", { expression:
       `localStorage.setItem("playseat.nickname","지호");` +
@@ -108,20 +111,29 @@ class PhoneCam {
     });
   }
 
-  /** 가능한 만큼 자주 찍고, 찍힌 시각을 같이 남깁니다(가변 프레임레이트). */
+  /**
+   * 화면이 바뀔 때마다 한 장씩 받고, 받은 시각을 같이 남깁니다(가변 프레임레이트).
+   *
+   * 예전에는 `Page.captureScreenshot` 을 되풀이해 불렀습니다. 그런데 화면에
+   * 전환 효과가 돌고 있으면 그 호출이 몇 초씩, 때로는 끝내 돌아오지 않았고,
+   * 그 사이의 폰 화면이 통째로 비었습니다. 스크린캐스트는 묻지 않아도
+   * 렌더러가 프레임을 밀어 주므로 막힐 호출이 없고, 전환도 끊기지 않고 찍힙니다.
+   */
   async run(t0) {
     let i = 0;
-    while (!this.#stop) {
-      // PNG 로 받으면 렌더러가 프레임마다 오래 붙잡혀 페이지의 WebSocket 이
-      // 끊깁니다. 어차피 결과물은 H.264 이므로 JPEG 로 받습니다.
-      const r = await this.cmd("Page.captureScreenshot", { format: "jpeg", quality: 88 });
-      if (!r?.data) { await sleep(200); continue; }
+    this.onFrame = (p) => {
       const t = (Date.now() - t0) / 1000;
       const name = `f${String(i++).padStart(5, "0")}.jpg`;
-      writeFileSync(join(OUT, "phone", name), Buffer.from(r.data, "base64"));
+      writeFileSync(join(OUT, "phone", name), Buffer.from(p.data, "base64"));
       this.frames.push({ t: Math.round(t * 1000) / 1000, f: name });
-      await sleep(160);
-    }
+      this.cmd("Page.screencastFrameAck", { sessionId: p.sessionId });
+    };
+    await this.cmd("Page.startScreencast", { format: "jpeg", quality: 90, everyNthFrame: 2 });
+    // 가만히 있는 화면에서는 첫 장이 오지 않습니다. 한 번 흔들어 첫 장을 받습니다.
+    await this.cmd("Runtime.evaluate", { expression:
+      `window.scrollTo(0,1); requestAnimationFrame(() => window.scrollTo(0,0))` });
+    while (!this.#stop) await sleep(200);
+    await Promise.race([this.cmd("Page.stopScreencast"), sleep(1000)]);
   }
 
   async close() {

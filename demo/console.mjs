@@ -91,8 +91,16 @@ export class Console {
     const q = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) q.set(k, String(v));
     const url = `${BASE}${path}?${q}`;
-    const r = await fetch(url, { method: "PUT" });
-    const text = await r.text();
+    // 콘솔이 잠깐 `emulator_inactive`(503) 를 돌려줄 때가 있습니다. 하트비트가
+    // 한 번 늦었을 뿐이라 조금 기다리면 풀립니다. 여기서 바로 던지면 3분짜리
+    // 녹화가 중간에 통째로 죽습니다.
+    let r, text;
+    for (let i = 0; i < 12; i++) {
+      r = await fetch(url, { method: "PUT" });
+      text = await r.text();
+      if (r.status !== 503) break;
+      await new Promise((res) => setTimeout(res, 500));
+    }
     if (!r.ok) throw new Error(`PUT ${path}?${q} → ${r.status} ${text.slice(0, 120)}`);
     return text;
   }

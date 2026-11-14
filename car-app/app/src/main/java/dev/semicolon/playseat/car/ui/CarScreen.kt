@@ -1,5 +1,9 @@
 package dev.semicolon.playseat.car.ui
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import coil.compose.AsyncImage
 import androidx.compose.foundation.Image
@@ -13,10 +17,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,46 +93,61 @@ fun CarScreen(
     // 운전자는 화면을 읽지 않고 흘깃 봅니다. 그때는 색이 곧 정보이므로
     // 눈에 보일 만큼 섞습니다. 밤에는 바탕이 어두워 더 섞어야 같은 양으로 보입니다.
     val night = p === NightPalette
-    val tint = mood?.let {
+    val tintTarget = mood?.let {
         val amount = when {
             driving -> if (night) 0.24f else 0.14f
             else -> if (night) 0.12f else 0.055f
         }
         lerp(p.bg, Color(it.argb), amount)
     } ?: p.bg
+    // 분위기가 바뀔 때 바탕색이 툭 바뀌지 않고 번져 갑니다.
+    val tint by animateColorAsState(tintTarget, tween(900), label = "tint")
 
     Column(Modifier.fillMaxSize().background(tint)) {
         Header(state, usingRealSignals, usingRealPlayback)
         HLine()
 
-        if (driving) {
-            DrivingView(state, Modifier.weight(1f), voiceStatus, canListen, onDriverSkip, onListen)
-        } else {
-            // 주행 중에는 운전자 화면을 축약하고 조작 권한을 동승자에게 넘깁니다.
-            // 이 분기가 플레이시트의 핵심 주장이고, AAOS 주의분산 제한의 전제이기도 합니다.
-            Row(Modifier.weight(1f)) {
-                // 위에서 본 차는 세로로 깁니다. 왼쪽 단을 그 폭에 맞춰 좁히면
-                // 차가 단을 꽉 채우고, 남는 가로는 대기열이 가져갑니다.
-                Column(Modifier.weight(0.52f)) {
-                    if (state.mode == SessionMode.CHARGING_LOUNGE) { LoungeNotice(); HLine() }
-                    SeatMap(state, Modifier.weight(1f))
-                    // 지분은 좌석도 바로 아래에 둡니다. 어느 자리가 얼마나
-                    // 가져갔는지는 그 자리를 보면서 읽어야 뜻이 통합니다.
-                    if (state.shares.isNotEmpty()) { HLine(); ShareBar(state) }
-                    HLine()
-                    JoinRow(state, joinUrl)
-                }
-                VLine()
-                Column(Modifier.weight(1f)) {
-                    NowPlaying(state, onDriverSkip)
-                    HLine()
-                    if (lastAlbum != null) { AlbumSection(lastAlbum); HLine() }
-                    // 추천이 떠 있는 동안에는 대기열이 어차피 비어 있습니다.
-                    // 같은 자리에 두면 "여기가 다음에 틀 곡" 이라는 뜻이 유지됩니다.
-                    if (state.suggestions.isNotEmpty()) {
-                        Box(Modifier.weight(1f)) { SuggestionList(state) }
-                    } else {
-                        QueueList(state, Modifier.weight(1f), onFitArrival)
+        // 정차 ↔ 주행 전환. 화면을 통째로 갈아 끼우면 툭 끊겨 보입니다.
+        // 앞 화면이 먼저 빠지고, 다음 화면이 살짝 커지며 들어옵니다.
+        AnimatedContent(
+            targetState = driving,
+            modifier = Modifier.weight(1f),
+            transitionSpec = {
+                (fadeIn(tween(520, delayMillis = 160)) +
+                    scaleIn(tween(520, delayMillis = 160), initialScale = 0.965f)) togetherWith
+                    (fadeOut(tween(220)) + scaleOut(tween(220), targetScale = 1.015f))
+            },
+            label = "drive",
+        ) { isDriving ->
+            if (isDriving) {
+                DrivingView(state, Modifier.fillMaxSize(), voiceStatus, canListen, onDriverSkip, onListen)
+            } else {
+                // 주행 중에는 운전자 화면을 축약하고 조작 권한을 동승자에게 넘깁니다.
+                // 이 분기가 플레이시트의 핵심 주장이고, AAOS 주의분산 제한의 전제이기도 합니다.
+                Row(Modifier.fillMaxSize()) {
+                    // 위에서 본 차는 세로로 깁니다. 왼쪽 단을 그 폭에 맞춰 좁히면
+                    // 차가 단을 꽉 채우고, 남는 가로는 대기열이 가져갑니다.
+                    Column(Modifier.weight(0.52f)) {
+                        if (state.mode == SessionMode.CHARGING_LOUNGE) { LoungeNotice(); HLine() }
+                        SeatMap(state, Modifier.weight(1f))
+                        // 지분은 좌석도 바로 아래에 둡니다. 어느 자리가 얼마나
+                        // 가져갔는지는 그 자리를 보면서 읽어야 뜻이 통합니다.
+                        if (state.shares.isNotEmpty()) { HLine(); ShareBar(state) }
+                        HLine()
+                        JoinRow(state, joinUrl)
+                    }
+                    VLine()
+                    Column(Modifier.weight(1f)) {
+                        NowPlaying(state, onDriverSkip)
+                        HLine()
+                        if (lastAlbum != null) { AlbumSection(lastAlbum); HLine() }
+                        // 추천이 떠 있는 동안에는 대기열이 어차피 비어 있습니다.
+                        // 같은 자리에 두면 "여기가 다음에 틀 곡" 이라는 뜻이 유지됩니다.
+                        if (state.suggestions.isNotEmpty()) {
+                            Box(Modifier.weight(1f)) { SuggestionList(state) }
+                        } else {
+                            QueueList(state, Modifier.weight(1f), onFitArrival)
+                        }
                     }
                 }
             }
@@ -244,37 +265,6 @@ private fun SuggestionList(state: SessionState) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("폰에서 '괜찮아요' 를 누르면 담지 않습니다", fontSize = 19.sp, color = p.sub)
-        }
-    }
-}
-
-/**
- * 주행 중 분위기 표시.
- *
- * 머리말의 작은 칩은 정차 중에나 읽힙니다. 주행 중에는 운전자가 화면을
- * 흘깃 보기 때문에, 판정 결과가 글자 크기와 색면으로 한 번에 들어와야 합니다.
- * 근거를 같이 두는 이유는 늘 같습니다 — 틀렸을 때 사람이 납득하거나 고칠 수
- * 있어야 합니다.
- */
-@Composable
-private fun MoodBanner(state: SessionState) {
-    val p = pal
-    val mood = Mood.byId(state.moodId) ?: return
-    val c = Color(mood.argb)
-    Row(
-        Modifier.fillMaxWidth().padding(bottom = 30.dp)
-            .background(c.copy(alpha = if (p === NightPalette) 0.22f else 0.13f))
-            .height(96.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.width(10.dp).fillMaxHeight().background(c))
-        Spacer(Modifier.width(26.dp))
-        Box(Modifier.size(22.dp).clip(CircleShape).background(c))
-        Spacer(Modifier.width(18.dp))
-        Text(mood.label, fontSize = 34.sp, fontWeight = FontWeight.Bold, color = p.text)
-        state.moodReason?.let {
-            Spacer(Modifier.width(20.dp))
-            Text(it, fontSize = 25.sp, color = p.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -779,6 +769,16 @@ private fun AlbumSection(album: DriveAlbumMsg) {
 
 /* ---------------- 주행 중: 운전자 화면 축약 ---------------- */
 
+/**
+ * 주행 중 화면.
+ *
+ * 운전자는 읽지 않고 흘깃 봅니다. 그래서 한눈에 들어오는 덩어리 셋만 둡니다 —
+ * 커버, 곡 이름, 큰 버튼 둘. 정차 화면의 헤어라인 표는 여기서 쓰지 않습니다.
+ * 선으로 잘게 나눈 면은 읽으라는 신호이기 때문입니다.
+ *
+ * 분위기·곡이 바뀔 때는 툭 바뀌지 않고 이어집니다. 주행 중에 화면이 번쩍
+ * 바뀌면 시선이 끌려가고, 그 자체가 주의 분산입니다.
+ */
 @Composable
 private fun DrivingView(
     state: SessionState,
@@ -789,124 +789,235 @@ private fun DrivingView(
     onListen: () -> Unit,
 ) {
     val p = pal
+    val night = p === NightPalette
     val np = state.nowPlaying
+    val mood = Mood.byId(state.moodId)
 
-    // 화면이 1682dp 로 넓어서 그대로 왼쪽 정렬하면 오른쪽이 텅 빕니다.
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(Modifier.widthIn(max = 1060.dp).padding(horizontal = 40.dp)) {
-            MoodBanner(state)
-            Text("지금 재생", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = p.text)
-            Spacer(Modifier.height(26.dp))
+    val surface = if (night) Color(0xFF1E1F24) else Color.White
+    val soft = if (night) Color(0xFF2B2D34) else Color(0xFFF2F4F6)
+    val ink = if (night) Color(0xFFF2F4F6) else Color(0xFF191F28)
+    val sub = if (night) Color(0xFF9AA4B2) else Color(0xFF6B7684)
+    val blue = Color(0xFF3182F6)
 
-            if (np == null) {
-                Text("재생 중인 곡이 없습니다", fontSize = 48.sp, color = p.sub)
-            } else {
-                Text(
-                    np.title, fontSize = 68.sp, fontWeight = FontWeight.Bold, color = p.text,
-                    lineHeight = 76.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(14.dp))
-                Text(np.artist, fontSize = 30.sp, color = p.sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(10.dp))
-                Text("${label(np.requestedBySeat)} 선곡", fontSize = 23.sp, color = p.sub)
-                Spacer(Modifier.height(28.dp))
-                Box(Modifier.fillMaxWidth().height(4.dp).background(p.line)) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(
-                                ((np.positionMs ?: 0).toFloat() / np.playMs.coerceAtLeast(1))
-                                    .coerceIn(0f, 1f)
+    val progress by animateFloatAsState(
+        targetValue = np?.let {
+            ((it.positionMs ?: 0).toFloat() / it.playMs.coerceAtLeast(1)).coerceIn(0f, 1f)
+        } ?: 0f,
+        animationSpec = tween(1000, easing = LinearEasing),
+        label = "progress",
+    )
+
+    Box(
+        modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 36.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(Modifier.widthIn(max = 1440.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        22.dp, RoundedCornerShape(44.dp),
+                        ambientColor = Color(0x14000000), spotColor = Color(0x1F000000),
+                    )
+                    .clip(RoundedCornerShape(44.dp))
+                    .background(surface)
+                    .padding(52.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 커버 — 곡이 바뀌면 겹쳐 넘어갑니다.
+                Box(
+                    Modifier.size(420.dp).clip(RoundedCornerShape(36.dp)).background(soft),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Crossfade(np?.artworkUrl, animationSpec = tween(500), label = "cover") { url ->
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            if (url.isNullOrBlank()) {
+                                NoteIcon(120.dp, sub)
+                            } else {
+                                AsyncImage(
+                                    model = url,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.width(68.dp))
+
+                Column(Modifier.weight(1f)) {
+                    // 분위기 — 색 알약 하나. 근거는 옆에 작게.
+                    AnimatedContent(
+                        targetState = mood,
+                        transitionSpec = {
+                            (fadeIn(tween(420, delayMillis = 120)) +
+                                slideInVertically(tween(420, delayMillis = 120)) { it / 3 }) togetherWith
+                                fadeOut(tween(180))
+                        },
+                        label = "mood",
+                    ) { m ->
+                        if (m == null) {
+                            Spacer(Modifier.height(54.dp))
+                        } else {
+                            val c = Color(m.argb)
+                            Row(
+                                Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(c.copy(alpha = if (night) 0.30f else 0.14f))
+                                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(Modifier.size(14.dp).clip(CircleShape).background(c))
+                                Spacer(Modifier.width(12.dp))
+                                Text(m.label, fontSize = 25.sp, fontWeight = FontWeight.Bold, color = ink)
+                                state.moodReason?.let {
+                                    Spacer(Modifier.width(14.dp))
+                                    Text(
+                                        it, fontSize = 22.sp, color = sub,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(30.dp))
+
+                    AnimatedContent(
+                        targetState = np?.let { it.title to it.artist },
+                        transitionSpec = {
+                            (fadeIn(tween(380, delayMillis = 100)) +
+                                slideInVertically(tween(380, delayMillis = 100)) { it / 6 }) togetherWith
+                                fadeOut(tween(160))
+                        },
+                        label = "track",
+                    ) { t ->
+                        Column(Modifier.fillMaxWidth()) {
+                            if (t == null) {
+                                Text(
+                                    "재생 중인 곡이 없어요", fontSize = 52.sp,
+                                    fontWeight = FontWeight.Bold, color = sub,
+                                )
+                            } else {
+                                Text(
+                                    t.first, fontSize = 68.sp, fontWeight = FontWeight.Bold, color = ink,
+                                    lineHeight = 78.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    "${t.second} · ${label(np?.requestedBySeat ?: "")} 선곡",
+                                    fontSize = 28.sp, color = sub,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(34.dp))
+                    Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(999.dp)).background(soft)) {
+                        Box(
+                            Modifier.fillMaxWidth(progress).fillMaxHeight()
+                                .clip(RoundedCornerShape(999.dp)).background(blue)
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row {
+                        Text(mmss(np?.positionMs ?: 0), fontSize = 21.sp, color = sub)
+                        Spacer(Modifier.weight(1f))
+                        Text(mmss(np?.playMs ?: 0), fontSize = 21.sp, color = sub)
+                    }
+
+                    Spacer(Modifier.height(34.dp))
+                    // 주행 중 터치 타깃은 2개로 제한하고, 목록·검색·키보드는 노출하지 않습니다.
+                    // distractionOptimized 선언의 전제가 바로 이 제약입니다.
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        Button(
+                            onSkip,
+                            Modifier.height(116.dp).weight(1f),
+                            shape = RoundedCornerShape(30.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = blue, contentColor = Color.White,
+                            ),
+                        ) {
+                            NextIcon(32.dp, Color.White)
+                            Spacer(Modifier.width(14.dp))
+                            Text("다음 곡", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onListen,
+                            Modifier.height(116.dp).weight(1f),
+                            enabled = canListen,
+                            shape = RoundedCornerShape(30.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = soft, contentColor = ink,
+                                disabledContainerColor = soft, disabledContentColor = sub,
+                            ),
+                        ) {
+                            MicIcon(32.dp, if (canListen) ink else sub)
+                            Spacer(Modifier.width(14.dp))
+                            Text(
+                                if (canListen) "말하기" else "마이크 권한 필요",
+                                fontSize = 30.sp, fontWeight = FontWeight.Bold,
                             )
-                            .fillMaxHeight().background(p.accent)
+                        }
+                    }
+
+                    voiceStatus?.let {
+                        Spacer(Modifier.height(16.dp))
+                        Text(it, color = blue, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+
+            // 아래 한 줄 — 왜 화면이 단순해졌는지, 그리고 다음에 무엇이 나오는지.
+            //
+            // 타임라인·버튼·목록을 주행 화면에 올리면 운전자가 읽기 시작하고,
+            // 그때부터 이 앱은 자기 주장을 스스로 어깁니다. 도착 맞춤도 여기서는
+            // 문장 하나까지입니다. 맞추는 조작은 정차 중에, 또는 동승자 폰에서 합니다.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(surface.copy(alpha = if (night) 0.62f else 0.74f))
+                    .padding(horizontal = 36.dp, vertical = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(blue.copy(alpha = if (night) 0.24f else 0.12f))
+                        .padding(horizontal = 18.dp, vertical = 9.dp),
+                ) {
+                    Text(
+                        if (state.landing) "도착 5분 전" else "동승자 폰",
+                        fontSize = 21.sp, fontWeight = FontWeight.Bold, color = blue,
                     )
                 }
-                Spacer(Modifier.height(12.dp))
-                Text("${mmss(np.positionMs ?: 0)} / ${mmss(np.playMs)}", fontSize = 20.sp, color = p.sub)
-            }
-
-            Spacer(Modifier.height(44.dp))
-            // 주행 중 터치 타깃은 2개로 제한하고, 목록·검색·키보드는 노출하지 않습니다.
-            // distractionOptimized 선언의 전제가 바로 이 제약입니다.
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                Button(
-                    onSkip,
-                    Modifier.height(112.dp).weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = p.inverse, contentColor = p.onInverse,
-                    ),
-                ) {
-                    NextIcon(30.dp, p.onInverse)
-                    Spacer(Modifier.width(14.dp))
-                    Text("다음 곡", fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
-                }
-                OutlinedButton(
-                    onListen,
-                    Modifier.height(112.dp).weight(1f),
-                    enabled = canListen,
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, p.line),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text),
-                ) {
-                    MicIcon(30.dp, if (canListen) p.text else p.sub)
-                    Spacer(Modifier.width(14.dp))
-                    Text(if (canListen) "말하기" else "마이크 권한 필요", fontSize = 28.sp)
-                }
-            }
-
-            voiceStatus?.let {
-                Spacer(Modifier.height(18.dp))
-                Text(it, color = p.accent, fontSize = 22.sp)
-            }
-
-            Spacer(Modifier.height(36.dp))
-            Column(Modifier.fillMaxWidth().background(p.cellActive).padding(26.dp)) {
-                if (state.landing) {
+                Spacer(Modifier.width(22.dp))
+                Column(Modifier.weight(1f)) {
                     Text(
-                        "도착 5분 전 — 랜딩 구간",
-                        fontSize = 23.sp, fontWeight = FontWeight.SemiBold, color = p.text,
-                    )
-                    Spacer(Modifier.height(7.dp))
-                    // 주행 중 도착 맞춤은 여기 한 줄까지입니다.
-                    //
-                    // 타임라인·버튼·목록을 주행 화면에 올리면 운전자가 읽기
-                    // 시작하고, 그때부터 이 앱은 자기 주장을 스스로 어깁니다.
-                    // 매니페스트의 distractionOptimized 선언도 이 화면이
-                    // 단순하다는 전제 위에 있습니다. 맞추는 조작은 정차 중에,
-                    // 또는 동승자 폰에서 합니다.
-                    Text(
-                        state.fitPlan ?: "곡이 끊기지 않게 마무리합니다",
-                        fontSize = 20.sp, color = p.sub,
+                        if (state.landing) "곡이 끊기지 않게 마무리하는 구간이에요"
+                        else "선곡은 동승자 폰에서 해요",
+                        fontSize = 25.sp, fontWeight = FontWeight.SemiBold, color = ink,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
-                } else {
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        "주행 중에는 선곡 조작이 동승자 폰으로 넘어갑니다",
-                        fontSize = 23.sp, fontWeight = FontWeight.SemiBold, color = p.text,
-                    )
-                    Spacer(Modifier.height(7.dp))
-                    Text(
-                        "운전자는 음성으로 참여하세요 — \"다음 곡\", \"이 노래 좋아\"",
-                        fontSize = 20.sp, color = p.sub,
+                        state.fitPlan ?: "운전자는 말로 참여하세요 · \"다음 곡\"  \"이 노래 좋아\"",
+                        fontSize = 21.sp, color = sub,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
-            }
-
-            state.queue.firstOrNull()?.let { next ->
-                Spacer(Modifier.height(22.dp))
-                Text(
-                    "다음 곡 · ${next.title} — ${label(next.requestedBySeat)} 선곡",
-                    color = p.sub, fontSize = 21.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            // 랜딩 밖에서는 도착 맞춤을 이 한 줄로만 둡니다. 랜딩 안에서는 위
-            // 안내 상자가 같은 문장을 이미 들고 있어서 두 번 쓰지 않습니다.
-            if (!state.landing) {
-                state.fitPlan?.let {
-                    Spacer(Modifier.height(10.dp))
-                    Text(it, color = p.sub, fontSize = 21.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                state.queue.firstOrNull()?.let { next ->
+                    Spacer(Modifier.width(28.dp))
+                    Column(Modifier.widthIn(max = 420.dp), horizontalAlignment = Alignment.End) {
+                        Text("다음 곡 · ${label(next.requestedBySeat)}", fontSize = 19.sp, color = sub)
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            next.title, fontSize = 25.sp, fontWeight = FontWeight.SemiBold, color = ink,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }

@@ -54,3 +54,9 @@ keystore.properties
 # --- 시연 녹화 원본·완성본 (저장소에 넣지 않는다) ---
 recording*/
 영상*/
+
+# --- 영상에 얹는 소리 ---
+# 효과음은 myinstants.com 에서 받은 것이라 재배포하지 않습니다. 없으면 compose.py 가
+# 음악만 깔고 넘어갑니다. 음악은 music.py 가 다시 만들 수 있어 넣지 않습니다.
+demo/assets/sfx/
+demo/assets/music_*.wav
