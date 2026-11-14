@@ -4,8 +4,8 @@
 |---|---|
 | 파일 | `Semicolon_플레이시트_release.apk` |
 | 버전 | 0.1.0 (versionCode 1) |
-| 크기 | 42.8 MB (42,759,900 B) |
-| SHA-256 | `fee571613e971cf857bfabc7c4fd9d5d7749402d06b2fda16dd9a02146bb6e85` |
+| 크기 | 42.8 MB (42,776,284 B) |
+| SHA-256 | `82864ad70b6ae981cc636f9184cfa011d0a10b6d3ed0dd4a3806d218723a2816` |
 | 서명 | 자체 서명 (CN=Semicolon) · SHA-256 `cd747d10…57b7` |
 | 타깃 | Pleos Connect (AAOS) · minSdk 28 / targetSdk 35 |
 
